@@ -205,3 +205,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Homelab Storage Monitor
+# User config (keep the example, ignore user's actual config)
+config/config.yaml
+
+# Data directory (SQLite database and runtime files)
+data/*
+!data/.gitkeep
