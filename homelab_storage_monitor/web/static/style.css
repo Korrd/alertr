@@ -614,3 +614,71 @@ body {
     font-weight: 600;
     color: var(--color-primary);
 }
+
+/* ============================================
+   Self-Test Results Section
+   ============================================ */
+.selftest-section {
+    margin-bottom: 1.5rem;
+}
+
+.selftest-section h4 {
+    margin-bottom: 0.75rem;
+    font-size: 0.95rem;
+    color: var(--color-text);
+}
+
+.selftest-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--color-hover);
+    border-radius: 6px;
+}
+
+.selftest-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    background: var(--color-card);
+    border-radius: 4px;
+    border: 1px solid var(--color-border);
+}
+
+.selftest-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-muted);
+    font-weight: 500;
+}
+
+.selftest-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.selftest-value.test-passed {
+    color: var(--color-ok);
+}
+
+.selftest-value.test-failed {
+    color: var(--color-crit);
+}
+
+.selftest-value.test-none {
+    color: var(--color-muted);
+    font-weight: 400;
+    font-style: italic;
+}
+
+.selftest-value.test-info {
+    color: var(--color-muted);
+}
+
+.selftest-detail {
+    font-size: 0.75rem;
+    color: var(--color-muted);
+}

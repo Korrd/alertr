@@ -81,6 +81,65 @@
             {% endif %}
         </div>
 
+        {% if data.selftest %}
+        <div class="selftest-section">
+            <h4>Self-Test Results</h4>
+            <div class="selftest-grid">
+                {% if data.selftest.last_short %}
+                <div class="selftest-item">
+                    <span class="selftest-label">Short Test</span>
+                    <span class="selftest-value {% if data.selftest.last_short.passed %}test-passed{% else %}test-failed{% endif %}">
+                        {% if data.selftest.last_short.passed %}✓ Passed{% else %}✗ Failed{% endif %}
+                    </span>
+                    <span class="selftest-detail">
+                        {% if data.selftest.last_short.hours_ago is not none %}
+                            {{ data.selftest.last_short.hours_ago | int }} hours ago
+                        {% endif %}
+                    </span>
+                </div>
+                {% else %}
+                <div class="selftest-item">
+                    <span class="selftest-label">Short Test</span>
+                    <span class="selftest-value test-none">No test run</span>
+                </div>
+                {% endif %}
+
+                {% if data.selftest.last_long %}
+                <div class="selftest-item">
+                    <span class="selftest-label">Extended Test</span>
+                    <span class="selftest-value {% if data.selftest.last_long.passed %}test-passed{% else %}test-failed{% endif %}">
+                        {% if data.selftest.last_long.passed %}✓ Passed{% else %}✗ Failed{% endif %}
+                    </span>
+                    <span class="selftest-detail">
+                        {% if data.selftest.last_long.hours_ago is not none %}
+                            {{ data.selftest.last_long.hours_ago | int }} hours ago
+                        {% endif %}
+                    </span>
+                </div>
+                {% else %}
+                <div class="selftest-item">
+                    <span class="selftest-label">Extended Test</span>
+                    <span class="selftest-value test-none">No test run</span>
+                </div>
+                {% endif %}
+
+                <div class="selftest-item">
+                    <span class="selftest-label">Error Log</span>
+                    <span class="selftest-value {% if data.selftest.error_count == 0 %}test-passed{% else %}test-failed{% endif %}">
+                        {% if data.selftest.error_count == 0 %}✓ Clean{% else %}{{ data.selftest.error_count }} error(s){% endif %}
+                    </span>
+                </div>
+
+                {% if data.selftest.test_count is defined and data.selftest.test_count > 0 %}
+                <div class="selftest-item">
+                    <span class="selftest-label">Test History</span>
+                    <span class="selftest-value test-info">{{ data.selftest.test_count }} test(s) logged</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
         {% if data.attrs %}
         <h4>Key Attributes</h4>
         <div class="grid">

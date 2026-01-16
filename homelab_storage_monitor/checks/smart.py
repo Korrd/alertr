@@ -77,8 +77,8 @@ class SmartCheck(BaseCheck):
 
     def _get_smart_data(self, disk: str) -> dict[str, Any]:
         """Query smartctl for disk information."""
-        # Include -i for device info (model, serial, capacity, etc.)
-        cmd = ["smartctl", "-i", "-H", "-A", "-j", disk]
+        # Include -i for device info, -l selftest for test results, -l error for error log
+        cmd = ["smartctl", "-i", "-H", "-A", "-l", "selftest", "-l", "error", "-j", disk]
 
         result = subprocess.run(
             cmd,
@@ -199,6 +199,72 @@ class SmartCheck(BaseCheck):
 
         return info
 
+    def _extract_selftest_results(self, smart_data: dict[str, Any]) -> dict[str, Any]:
+        """Extract self-test log results from smartctl output."""
+        results: dict[str, Any] = {
+            "tests": [],
+            "last_short": None,
+            "last_long": None,
+            "error_count": 0,
+            "has_errors": False,
+            "test_count": 0,
+        }
+
+        # Get current power-on hours for calculating hours_ago
+        current_poh = 0
+        power_on = smart_data.get("power_on_time", {})
+        if isinstance(power_on, dict):
+            current_poh = power_on.get("hours", 0)
+
+        # Get self-test log (ATA style)
+        selftest_log = smart_data.get("ata_smart_self_test_log", {})
+        if selftest_log:
+            standard = selftest_log.get("standard", {})
+            test_table = standard.get("table", [])
+            results["test_count"] = len(test_table)
+
+            for test in test_table[:10]:  # Keep last 10 tests
+                lifetime_hours = test.get("lifetime_hours", 0)
+                hours_ago = current_poh - lifetime_hours if current_poh > 0 else None
+
+                test_entry = {
+                    "type": test.get("type", {}).get("string", "Unknown"),
+                    "status": test.get("status", {}).get("string", "Unknown"),
+                    "passed": test.get("status", {}).get("passed", True),
+                    "remaining_percent": test.get("status", {}).get("remaining_percent", 0),
+                    "lifetime_hours": lifetime_hours,
+                    "hours_ago": hours_ago,
+                }
+                results["tests"].append(test_entry)
+
+                # Track last short and long tests
+                test_type = test_entry["type"].lower()
+                if "short" in test_type and results["last_short"] is None:
+                    results["last_short"] = test_entry
+                elif ("extended" in test_type or "long" in test_type) and results["last_long"] is None:
+                    results["last_long"] = test_entry
+
+                if not test_entry["passed"]:
+                    results["has_errors"] = True
+
+        # Get error log count (ATA style)
+        error_log = smart_data.get("ata_smart_error_log", {})
+        if error_log:
+            summary = error_log.get("summary", {})
+            results["error_count"] = summary.get("count", 0)
+            if results["error_count"] > 0:
+                results["has_errors"] = True
+
+        # NVMe style - check for error log entries
+        nvme_health = smart_data.get("nvme_smart_health_information_log", {})
+        if nvme_health:
+            err_entries = nvme_health.get("num_err_log_entries", 0)
+            results["error_count"] = err_entries
+            if err_entries > 0:
+                results["has_errors"] = True
+
+        return results
+
     def _parse_temperature(self, raw_value: int, attr_id: int) -> int:
         """Extract temperature from SMART raw value.
 
@@ -252,9 +318,13 @@ class SmartCheck(BaseCheck):
         # Extract device info
         device_info = self._extract_device_info(smart_data)
 
+        # Extract self-test results
+        selftest_results = self._extract_selftest_results(smart_data)
+
         details: dict[str, Any] = {
             "disk": disk,
             "device_info": device_info,
+            "selftest": selftest_results,
             "issues": [],
             "warnings": [],
             "attributes": {},
@@ -266,6 +336,20 @@ class SmartCheck(BaseCheck):
             self._metrics.append(
                 Metric(name="disk_info", value_text=json.dumps(device_info), labels=labels)
             )
+
+        # Store self-test results as metric
+        self._metrics.append(
+            Metric(name="disk_selftest", value_text=json.dumps(selftest_results), labels=labels)
+        )
+
+        # Check for self-test failures
+        if selftest_results["has_errors"]:
+            if selftest_results["error_count"] > 0:
+                warnings.append(f"Error log has {selftest_results['error_count']} entries")
+            for test in selftest_results["tests"]:
+                if not test["passed"]:
+                    issues.append(f"Self-test failed: {test['type']} - {test['status']}")
+                    break  # Only report first failure
 
         # Check overall SMART status
         smart_status = smart_data.get("smart_status", {})

@@ -199,6 +199,9 @@ def create_app(config: Config | None = None) -> FastAPI:
         # Get disk info metrics
         disk_info_metrics = db.get_metrics("disk_info", limit=100)
 
+        # Get self-test results
+        selftest_metrics = db.get_metrics("disk_selftest", limit=100)
+
         # Parse disk info (latest per disk)
         disk_infos: dict[str, dict] = {}
         for m in disk_info_metrics:
@@ -209,19 +212,39 @@ def create_app(config: Config | None = None) -> FastAPI:
                 except (json.JSONDecodeError, TypeError):
                     pass
 
+        # Parse self-test results (latest per disk)
+        disk_selftests: dict[str, dict] = {}
+        for m in selftest_metrics:
+            disk = m["labels"].get("disk", "unknown")
+            if disk not in disk_selftests and m.get("value_text"):
+                try:
+                    disk_selftests[disk] = json.loads(m["value_text"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
         # Group by disk
         disks: dict[str, dict] = {}
         for m in health_metrics:
             disk = m["labels"].get("disk", "unknown")
             if disk not in disks:
-                disks[disk] = {"health": [], "attrs": {}, "info": disk_infos.get(disk, {})}
+                disks[disk] = {
+                    "health": [],
+                    "attrs": {},
+                    "info": disk_infos.get(disk, {}),
+                    "selftest": disk_selftests.get(disk, {}),
+                }
             disks[disk]["health"].append(m)
 
         for m in attr_metrics:
             disk = m["labels"].get("disk", "unknown")
             attr = m["labels"].get("attr", "unknown")
             if disk not in disks:
-                disks[disk] = {"health": [], "attrs": {}, "info": disk_infos.get(disk, {})}
+                disks[disk] = {
+                    "health": [],
+                    "attrs": {},
+                    "info": disk_infos.get(disk, {}),
+                    "selftest": disk_selftests.get(disk, {}),
+                }
             if attr not in disks[disk]["attrs"]:
                 disks[disk]["attrs"][attr] = []
             disks[disk]["attrs"][attr].append(m)
