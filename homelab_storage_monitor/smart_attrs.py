@@ -350,8 +350,8 @@ SMART_ATTRS: dict[int, SmartAttr] = {
     ),
     1004: SmartAttr(
         id=1004,
-        name="Media Errors",
-        description="Unrecovered data integrity errors. Non-zero indicates data loss.",
+        name="Media & Data Errors",
+        description="Media and Data Integrity Errors. Non-zero indicates unrecovered data errors.",
         importance=Importance.CRITICAL,
     ),
     1005: SmartAttr(
