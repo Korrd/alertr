@@ -63,6 +63,13 @@ SMART_ATTRS: dict[int, SmartAttr] = {
         description="Rate of seek errors. Vendor-specific; may indicate head or platter issues.",
         importance=Importance.MEDIUM,
     ),
+    8: SmartAttr(
+        id=8,
+        name="Seek Time Performance",
+        description="Average seek time performance. Lower values indicate faster seeking.",
+        importance=Importance.LOW,
+        higher_is_worse=False,
+    ),
     9: SmartAttr(
         id=9,
         name="Power-On Hours",
@@ -138,8 +145,8 @@ SMART_ATTRS: dict[int, SmartAttr] = {
     ),
     192: SmartAttr(
         id=192,
-        name="Unsafe Shutdown Count",
-        description="Emergency retract events (power loss during operation). Stresses heads.",
+        name="Power-Off Retract Count",
+        description="Emergency head retracts due to power loss. Also called unsafe shutdown count. High values stress heads.",
         importance=Importance.MEDIUM,
     ),
     193: SmartAttr(
