@@ -74,7 +74,7 @@
                 {% if data.info.power_on_hours %}
                 <div class="disk-info-item">
                     <span class="disk-info-label">Power-On</span>
-                    <span class="disk-info-value">{{ data.info.power_on_hours | int }} hours ({{ (data.info.power_on_hours / 24) | int }} days)</span>
+                    <span class="disk-info-value">{{ data.info.power_on_hours | natural_time }} ({{ data.info.power_on_hours | int }} hours)</span>
                 </div>
                 {% endif %}
             </div>

@@ -52,6 +52,31 @@ def create_app(config: Config | None = None) -> FastAPI:
     # Setup templates
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+    # Custom filter for natural time display
+    def hours_to_natural(hours: int | float) -> str:
+        """Convert hours to natural time format (years, months, days, hours)."""
+        hours = int(hours)
+        if hours <= 0:
+            return "0 hours"
+
+        years, remainder = divmod(hours, 8760)  # 365 * 24
+        months, remainder = divmod(remainder, 730)  # ~30.4 * 24
+        days, hrs = divmod(remainder, 24)
+
+        parts = []
+        if years > 0:
+            parts.append(f"{years}y")
+        if months > 0:
+            parts.append(f"{months}mo")
+        if days > 0:
+            parts.append(f"{days}d")
+        if hrs > 0 and not years:  # Only show hours if less than a year
+            parts.append(f"{hrs}h")
+
+        return " ".join(parts) if parts else "0 hours"
+
+    templates.env.filters["natural_time"] = hours_to_natural
+
     # Add template globals
     templates.env.globals["now"] = datetime.now
     templates.env.globals["get_attr_info"] = get_attr_info
