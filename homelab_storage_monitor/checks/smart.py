@@ -242,6 +242,28 @@ class SmartCheck(BaseCheck):
 
         # Return as-is if nothing works
         return raw_value
+
+    def _analyze_smart(self, disk: str, smart_data: dict[str, Any]) -> CheckResult:
+        """Analyze SMART data and determine health status."""
+        thresholds = self.config.smart.thresholds
+        issues: list[str] = []
+        warnings: list[str] = []
+
+        # Extract device info
+        device_info = self._extract_device_info(smart_data)
+
+        details: dict[str, Any] = {
+            "disk": disk,
+            "device_info": device_info,
+            "issues": [],
+            "warnings": [],
+            "attributes": {},
+        }
+
+        # Store device info as metrics for the dashboard
+        labels = {"disk": disk}
+        if device_info.get("model"):
+            self._metrics.append(
                 Metric(name="disk_info", value_text=json.dumps(device_info), labels=labels)
             )
 
