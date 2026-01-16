@@ -293,7 +293,7 @@ class SmartCheck(BaseCheck):
         if not attr_table:
             nvme_health = smart_data.get("nvme_smart_health_information_log", {})
             if nvme_health:
-                return self._analyze_nvme(disk, nvme_health, overall_passed)
+                return self._analyze_nvme(disk, nvme_health, overall_passed, smart_data)
 
         for attr in attr_table:
             attr_id = attr.get("id")
@@ -400,51 +400,106 @@ class SmartCheck(BaseCheck):
         disk: str,
         nvme_health: dict[str, Any],
         overall_passed: bool,
+        smart_data: dict[str, Any],
     ) -> CheckResult:
         """Analyze NVMe health information."""
         issues: list[str] = []
         warnings: list[str] = []
         labels = {"disk": disk}
 
+        # Extract and store device info
+        device_info = self._extract_device_info(smart_data)
+        if device_info.get("model"):
+            self._metrics.append(
+                Metric(name="disk_info", value_text=json.dumps(device_info), labels=labels)
+            )
+
         details: dict[str, Any] = {
             "disk": disk,
             "type": "nvme",
+            "device_info": device_info,
             "issues": [],
             "warnings": [],
             "health": nvme_health,
         }
 
-        # Check critical warning flags
-        critical_warning = nvme_health.get("critical_warning", 0)
-        if critical_warning != 0:
-            issues.append(f"NVMe critical warning: {critical_warning}")
+        # Store NVMe health values as "smart_attr_raw" metrics with special IDs
+        # We use IDs 1000+ to differentiate from standard SMART attributes
+        # This allows the dashboard to display them in the same grid
 
-        # Check percentage used
+        # Temperature (often in nvme health log)
+        temp = nvme_health.get("temperature", 0)
+        if temp:
+            self._metrics.append(
+                Metric(name="smart_attr_raw", value_num=float(temp), labels={**labels, "attr": "1001"})
+            )
+
+        # Percentage used (wear level)
         pct_used = nvme_health.get("percentage_used", 0)
         self._metrics.append(
-            Metric(name="nvme_pct_used", value_num=float(pct_used), labels=labels)
+            Metric(name="smart_attr_raw", value_num=float(pct_used), labels={**labels, "attr": "1002"})
         )
         if pct_used >= 100:
             warnings.append(f"NVMe wear: {pct_used}% used")
         elif pct_used >= 90:
             warnings.append(f"NVMe wear high: {pct_used}% used")
 
-        # Check media errors
+        # Available spare
+        spare = nvme_health.get("available_spare", 100)
+        spare_threshold = nvme_health.get("available_spare_threshold", 10)
+        self._metrics.append(
+            Metric(name="smart_attr_raw", value_num=float(spare), labels={**labels, "attr": "1003"})
+        )
+        if spare < spare_threshold:
+            issues.append(f"NVMe spare below threshold: {spare}%")
+
+        # Media errors
         media_errors = nvme_health.get("media_errors", 0)
         self._metrics.append(
-            Metric(name="nvme_media_errors", value_num=float(media_errors), labels=labels)
+            Metric(name="smart_attr_raw", value_num=float(media_errors), labels={**labels, "attr": "1004"})
         )
         if media_errors > 0:
             issues.append(f"NVMe media errors: {media_errors}")
 
-        # Check available spare
-        spare = nvme_health.get("available_spare", 100)
-        spare_threshold = nvme_health.get("available_spare_threshold", 10)
+        # Power on hours
+        power_on_hours = nvme_health.get("power_on_hours", 0)
         self._metrics.append(
-            Metric(name="nvme_available_spare", value_num=float(spare), labels=labels)
+            Metric(name="smart_attr_raw", value_num=float(power_on_hours), labels={**labels, "attr": "1005"})
         )
-        if spare < spare_threshold:
-            issues.append(f"NVMe spare below threshold: {spare}%")
+
+        # Power cycles
+        power_cycles = nvme_health.get("power_cycles", 0)
+        self._metrics.append(
+            Metric(name="smart_attr_raw", value_num=float(power_cycles), labels={**labels, "attr": "1006"})
+        )
+
+        # Unsafe shutdowns
+        unsafe_shutdowns = nvme_health.get("unsafe_shutdowns", 0)
+        self._metrics.append(
+            Metric(name="smart_attr_raw", value_num=float(unsafe_shutdowns), labels={**labels, "attr": "1007"})
+        )
+
+        # Data units written (in 512KB units, convert to GB)
+        data_written = nvme_health.get("data_units_written", 0)
+        data_written_gb = (data_written * 512 * 1000) / 1e9  # Convert to GB
+        self._metrics.append(
+            Metric(name="smart_attr_raw", value_num=float(int(data_written_gb)), labels={**labels, "attr": "1008"})
+        )
+
+        # Data units read (in 512KB units, convert to GB)
+        data_read = nvme_health.get("data_units_read", 0)
+        data_read_gb = (data_read * 512 * 1000) / 1e9  # Convert to GB
+        self._metrics.append(
+            Metric(name="smart_attr_raw", value_num=float(int(data_read_gb)), labels={**labels, "attr": "1009"})
+        )
+
+        # Critical warning flags
+        critical_warning = nvme_health.get("critical_warning", 0)
+        self._metrics.append(
+            Metric(name="smart_attr_raw", value_num=float(critical_warning), labels={**labels, "attr": "1010"})
+        )
+        if critical_warning != 0:
+            issues.append(f"NVMe critical warning: {critical_warning}")
 
         if not overall_passed:
             issues.insert(0, "SMART overall health: FAILED")

@@ -321,6 +321,71 @@ SMART_ATTRS: dict[int, SmartAttr] = {
         description="Free-fall events detected (laptops).",
         importance=Importance.LOW,
     ),
+    # NVMe-specific attributes (IDs 1001+)
+    1001: SmartAttr(
+        id=1001,
+        name="Temperature",
+        description="Current NVMe drive temperature in Celsius.",
+        importance=Importance.MEDIUM,
+    ),
+    1002: SmartAttr(
+        id=1002,
+        name="Percentage Used",
+        description="NVMe wear indicator. 100% means drive has reached rated write endurance.",
+        importance=Importance.HIGH,
+    ),
+    1003: SmartAttr(
+        id=1003,
+        name="Available Spare",
+        description="Remaining spare capacity for bad block replacement. Low values indicate wear.",
+        importance=Importance.HIGH,
+        higher_is_worse=False,
+    ),
+    1004: SmartAttr(
+        id=1004,
+        name="Media Errors",
+        description="Unrecovered data integrity errors. Non-zero indicates data loss.",
+        importance=Importance.CRITICAL,
+    ),
+    1005: SmartAttr(
+        id=1005,
+        name="Power-On Hours",
+        description="Total hours the drive has been powered on.",
+        importance=Importance.LOW,
+        higher_is_worse=False,
+    ),
+    1006: SmartAttr(
+        id=1006,
+        name="Power Cycles",
+        description="Number of power on/off cycles.",
+        importance=Importance.LOW,
+    ),
+    1007: SmartAttr(
+        id=1007,
+        name="Unsafe Shutdowns",
+        description="Power losses without proper shutdown. High counts may affect reliability.",
+        importance=Importance.MEDIUM,
+    ),
+    1008: SmartAttr(
+        id=1008,
+        name="Data Written (GB)",
+        description="Total data written to the drive in gigabytes.",
+        importance=Importance.LOW,
+        higher_is_worse=False,
+    ),
+    1009: SmartAttr(
+        id=1009,
+        name="Data Read (GB)",
+        description="Total data read from the drive in gigabytes.",
+        importance=Importance.LOW,
+        higher_is_worse=False,
+    ),
+    1010: SmartAttr(
+        id=1010,
+        name="Critical Warning",
+        description="NVMe critical warning flags. Non-zero indicates serious issues.",
+        importance=Importance.CRITICAL,
+    ),
 }
 
 
