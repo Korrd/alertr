@@ -36,10 +36,6 @@ ENV HSM_DB_PATH=/var/lib/hsm/hsm.sqlite
 # Expose dashboard port
 EXPOSE 8088
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8088/health || exit 1
-
 # Default entrypoint
 ENTRYPOINT ["hsm"]
 
