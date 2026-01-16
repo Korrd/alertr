@@ -5,20 +5,20 @@
 # - hsm_dashboard: Unprivileged container serving the web UI
 #
 # Usage:
-#   docker-compose up -d
+#   1. Copy this file to docker-compose.yml
+#   2. Edit config/config.yaml with your settings
+#   3. Adjust volume mounts below for your monitored filesystems
+#   4. Run: docker-compose up -d
 #
-# Customize:
-#   1. Edit config/config.yaml with your settings
-#   2. Adjust volume mounts below for your monitored filesystems
-#   3. Set timezone via TZ environment variable
+# Images are pulled from GitHub Container Registry (ghcr.io).
+# For local development, uncomment the build: . lines.
 
 services:
   # Collector service - runs health checks on a schedule
   # Requires privileged access for LVM, SMART, and journald
   hsm_collector:
-    build: .
-    image: homelab-storage-monitor:latest
-    container_name: hsm_collector
+    image: ghcr.io/vic/alertr:latest
+    # build: .  # Uncomment for local development
     command: ["run", "--config", "/config/config.yaml", "--loop"]
 
     # Required for LVM and SMART access
@@ -82,9 +82,8 @@ services:
 
   # Dashboard service - serves the web UI (unprivileged)
   hsm_dashboard:
-    build: .
-    image: homelab-storage-monitor:latest
-    container_name: hsm_dashboard
+    image: ghcr.io/vic/alertr:latest
+    # build: .  # Uncomment for local development
     command: ["serve", "--config", "/config/config.yaml", "--bind", "0.0.0.0:8088"]
 
     # Note: Needs write access to database for acknowledgments

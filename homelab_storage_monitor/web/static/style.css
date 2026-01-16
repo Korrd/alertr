@@ -121,11 +121,16 @@ body {
 /* Status Cards */
 .status-card {
     border-left: 4px solid var(--color-muted);
+    padding-left: 1.5rem;
 }
 
 .status-card.status-ok { border-left-color: var(--color-ok); }
 .status-card.status-warn { border-left-color: var(--color-warn); }
 .status-card.status-crit { border-left-color: var(--color-crit); }
+
+.status-header {
+    padding-left: 0.5rem;
+}
 
 .status-header h2 {
     display: flex;

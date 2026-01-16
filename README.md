@@ -1,15 +1,19 @@
 # Homelab Storage Monitor
 
+[![CI/CD](https://github.com/Korrd/alertr/actions/workflows/ci.yml/badge.svg)](https://github.com/Korrd/alertr/actions/workflows/ci.yml)
+
 Monitoring and alerting for homelab disk arrays. Detects disk failure risks, RAID degradation, filesystem issues, and sends alerts via Slack and email.
 
 ## Features
 
 - **LVM RAID1 Monitoring**: Detect mirror degradation, sync issues, and stalled rebuilds
-- **SMART Health Checks**: Monitor disk health attributes with delta detection
+- **SMART Health Checks**: Monitor disk health attributes with delta detection for both ATA and NVMe drives
+- **Self-Test Results**: Display SMART self-test history and detailed error logs
+- **Error Acknowledgment**: Suppress known issues from alerts with notes and Slack notifications
 - **Filesystem Capacity**: Track usage with configurable warning thresholds
 - **Kernel Log Scanning**: Detect I/O errors, ext4 errors, and SATA issues
-- **Smart Alerting**: Deduplicated alerts via Slack and email with cooldown periods
-- **Web Dashboard**: Real-time status, historical charts, and event timeline
+- **Smart Alerting**: Deduplicated alerts via Slack and email with cooldown periods and impact descriptions
+- **Web Dashboard**: Real-time status, historical charts, and event timeline with dark/light/auto theme
 - **Simple Backup**: Single SQLite database file
 
 ## Quick Start
@@ -17,12 +21,15 @@ Monitoring and alerting for homelab disk arrays. Detects disk failure risks, RAI
 ### 1. Clone and Configure
 
 ```bash
-git clone https://github.com/alertr/homelab-storage-monitor.git
-cd homelab-storage-monitor
+git clone https://github.com/Korrd/alertr.git
+cd alertr
 
 # Create config directory and copy example
 mkdir -p config data
 cp config/config.example.yaml config/config.yaml
+
+# Set proper permissions for the dashboard container
+sudo chown -R 1000:1000 ./data
 
 # Edit configuration for your setup
 nano config/config.yaml
@@ -58,11 +65,16 @@ smart:
   disks:
     - /dev/sda
     - /dev/sdb
+    - /dev/nvme0
 ```
 
 ### 4. Start Services
 
 ```bash
+# Copy the example compose file
+cp docker-compose.example.yml docker-compose.yml
+
+# Start services
 docker-compose up -d
 ```
 
@@ -75,7 +87,7 @@ Open http://your-server:8088 in your browser.
 Two-container model for security:
 
 1. **Collector** (privileged): Runs health checks, needs host device access
-2. **Dashboard** (unprivileged): Web UI with read-only database access
+2. **Dashboard** (unprivileged): Web UI with database access (needs write for acknowledgments)
 
 ```
 ┌─────────────────┐     ┌─────────────────┐
@@ -85,7 +97,7 @@ Two-container model for security:
 │  - LVM checks   │     │  - FastAPI      │
 │  - SMART checks │     │  - Charts       │
 │  - Log scanning │     │  - API          │
-│  - Alerting     │     │                 │
+│  - Alerting     │     │  - ACK system   │
 └────────┬────────┘     └────────┬────────┘
          │                       │
          │    ┌──────────────┐   │
@@ -168,7 +180,25 @@ hsm retention --config /path/to/config.yaml --vacuum
 | `GET /api/metrics?name=...` | Query metrics |
 | `GET /api/events?severity=...` | Query events |
 | `GET /api/issues/open` | Open issues |
+| `GET /api/smart/acknowledgments` | List all SMART acknowledgments |
+| `POST /api/smart/acknowledge` | Acknowledge SMART errors for a disk |
+| `DELETE /api/smart/acknowledge/{disk}` | Remove acknowledgment for a disk |
 | `GET /health` | Health check (no auth) |
+
+## Error Acknowledgment
+
+When a disk has SMART warnings that you've investigated and want to suppress from alerts:
+
+1. Navigate to the **SMART** page in the dashboard
+2. Click the **Acknowledge** button on the disk card
+3. Enter a note explaining why the error is acknowledged (e.g., "Replaced disk scheduled for next week")
+4. Click **Acknowledge**
+
+Acknowledged disks:
+- Show a muted status (grey) on the overview page
+- Are excluded from Slack/email alerts
+- Still display their raw data on the SMART page
+- Trigger a Slack notification when acknowledged (if Slack is configured)
 
 ## Authentication
 
@@ -299,7 +329,18 @@ The collector must run with `privileged: true` for SMART access.
    ls -la data/hsm.sqlite
    ```
 
-3. Check database permissions match dashboard user.
+3. Check database permissions match dashboard user:
+   ```bash
+   sudo chown -R 1000:1000 ./data
+   ```
+
+### Readonly Database Errors
+
+The dashboard needs write access for the acknowledgment system. Fix permissions:
+
+```bash
+sudo chown -R 1000:1000 ./data
+```
 
 ## Development
 
@@ -314,11 +355,20 @@ source venv/bin/activate
 pip install -e ".[dev]"
 
 # Run tests
-pytest
+pytest -v
 
 # Run linting
 ruff check .
-mypy homelab_storage_monitor/
+```
+
+### Building Docker Image Locally
+
+```bash
+# Build the image
+docker build -t homelab-storage-monitor:local .
+
+# Update docker-compose.yml to use local image
+# image: homelab-storage-monitor:local
 ```
 
 ### Running Locally
@@ -332,7 +382,21 @@ hsm run -c config.yaml
 
 # Start dashboard
 hsm serve -c config.yaml --bind 127.0.0.1:8088
+
+# Test alerts
+hsm test-alerts -c config.yaml --slack --email
 ```
+
+## CI/CD
+
+This project uses GitHub Actions for continuous integration:
+
+- **Tests**: Run on every push and pull request
+- **Linting**: Ruff checks on every push
+- **Docker Build**: Multi-platform images (amd64, arm64) built and pushed to GHCR
+- **Tags**: Semantic versioning supported (v1.0.0, v1.0, latest)
+
+Images are available at `ghcr.io/vic/alertr:latest`.
 
 ## License
 
