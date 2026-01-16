@@ -54,8 +54,20 @@ def create_app(config: Config | None = None) -> FastAPI:
     def get_db() -> Database:
         return app.state.db
 
+    async def get_optional_credentials(
+        request: Request,
+    ) -> HTTPBasicCredentials | None:
+        """Get credentials if provided, None otherwise."""
+        auth = request.headers.get("Authorization")
+        if not auth:
+            return None
+        try:
+            return await security(request)
+        except Exception:
+            return None
+
     def verify_auth(
-        credentials: Annotated[HTTPBasicCredentials | None, Depends(security)],
+        credentials: HTTPBasicCredentials | None,
     ) -> bool:
         """Verify authentication if enabled."""
         cfg: Config = app.state.config
@@ -89,8 +101,8 @@ def create_app(config: Config | None = None) -> FastAPI:
 
         return False
 
-    def require_auth(
-        credentials: Annotated[HTTPBasicCredentials | None, Depends(security)],
+    async def require_auth(
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(get_optional_credentials)],
     ) -> None:
         """Require authentication if enabled."""
         if not verify_auth(credentials):
