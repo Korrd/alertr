@@ -17,7 +17,7 @@ services:
   # Collector service - runs health checks on a schedule
   # Requires privileged access for LVM, SMART, and journald
   hsm_collector:
-    image: ghcr.io/vic/alertr:latest
+    image: ghcr.io/korrd/alertr:latest
     # build: .  # Uncomment for local development
     command: ["run", "--config", "/config/config.yaml", "--loop"]
 
@@ -82,7 +82,7 @@ services:
 
   # Dashboard service - serves the web UI (unprivileged)
   hsm_dashboard:
-    image: ghcr.io/vic/alertr:latest
+    image: ghcr.io/korrd/alertr:latest
     # build: .  # Uncomment for local development
     command: ["serve", "--config", "/config/config.yaml", "--bind", "0.0.0.0:8088"]
 
