@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/logo.svg" alt="Homelab Storage Monitor" width="120">
+  <img src="docs/images/logo.png" alt="Homelab Storage Monitor" width="120">
 </p>
 
 <h1 align="center">Homelab Storage Monitor</h1>
@@ -551,20 +551,6 @@ hsm test-alerts -c config.yaml --slack --email
 ```
 
 </details>
-
-<br>
-
-## 🔄 CI/CD
-
-This project uses GitHub Actions for continuous integration:
-
-| Workflow | Trigger | Description |
-|----------|---------|-------------|
-| **Tests** | Push, PR | Runs pytest on all changes |
-| **Linting** | Push | Ruff checks for code quality |
-| **Docker Build** | Tags, main | Multi-platform images (amd64, arm64) |
-
-Images are available at `ghcr.io/korrd/alertr:latest`.
 
 <br>
 

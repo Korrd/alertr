@@ -1,56 +1,32 @@
 #!/usr/bin/env python3
-"""Generate favicon files for the web app."""
+"""Generate favicon files from the logo.png for the web app."""
 
-from PIL import Image, ImageDraw
+from PIL import Image
 import os
 
-# Create favicon from the logo concept (brushstroke "A" on dark background)
-sizes = [16, 32, 180, 192, 512]
+# Source logo and output directory
+logo_path = "docs/images/logo.png"
 output_dir = "homelab_storage_monitor/web/static"
-
-
-def create_favicon(size):
-    """Create a simple 'A' favicon matching the brushstroke style."""
-    img = Image.new('RGBA', (size, size), (10, 10, 10, 255))
-    draw = ImageDraw.Draw(img)
-
-    # Draw a stylized "A" - simplified for small sizes
-    margin = size * 0.1
-    center_x = size / 2
-    top_y = margin
-    bottom_y = size - margin
-    width = size * 0.7
-
-    # Cream/off-white color matching the logo
-    cream = (245, 240, 232, 255)
-    stroke_width = max(2, int(size * 0.12))
-
-    # Left leg of A
-    left_start = (center_x, top_y)
-    left_end = (center_x - width/2, bottom_y)
-    draw.line([left_start, left_end], fill=cream, width=stroke_width)
-
-    # Right leg of A
-    right_start = (center_x, top_y)
-    right_end = (center_x + width/2, bottom_y)
-    draw.line([right_start, right_end], fill=cream, width=stroke_width)
-
-    # Crossbar
-    crossbar_y = size * 0.6
-    crossbar_left = center_x - width * 0.3
-    crossbar_right = center_x + width * 0.3
-    draw.line([(crossbar_left, crossbar_y), (crossbar_right, crossbar_y)],
-              fill=cream, width=max(1, stroke_width - 1))
-
-    return img
+sizes = [16, 32, 180, 192, 512]
 
 
 if __name__ == '__main__':
+    # Load the source logo
+    logo = Image.open(logo_path)
+
+    # Convert to RGBA if needed
+    if logo.mode != 'RGBA':
+        logo = logo.convert('RGBA')
+
+    print(f"Source logo: {logo.size[0]}x{logo.size[1]}")
+
     # Generate favicons
     os.makedirs(output_dir, exist_ok=True)
 
     for size in sizes:
-        img = create_favicon(size)
+        # Resize with high-quality resampling
+        img = logo.resize((size, size), Image.Resampling.LANCZOS)
+
         if size == 16:
             img.save(os.path.join(output_dir, 'favicon-16x16.png'), 'PNG')
         elif size == 32:
@@ -62,10 +38,14 @@ if __name__ == '__main__':
         elif size == 512:
             img.save(os.path.join(output_dir, 'favicon-512x512.png'), 'PNG')
 
-    # Create ICO file with multiple sizes
-    ico_img = create_favicon(32)
-    ico_img.save(os.path.join(output_dir, 'favicon.ico'), 'ICO')
+        print(f"  Created {size}x{size} favicon")
 
-    print("Favicons created successfully!")
+    # Create ICO file
+    ico_img = logo.resize((32, 32), Image.Resampling.LANCZOS)
+    ico_img.save(os.path.join(output_dir, 'favicon.ico'), 'ICO')
+    print("  Created favicon.ico")
+
+    print("\nFavicons created successfully!")
     for f in sorted(os.listdir(output_dir)):
+        print(f"  - {f}")
         print(f"  - {f}")
