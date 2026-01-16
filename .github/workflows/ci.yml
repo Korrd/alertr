@@ -1,10 +1,3 @@
-# Homelab Storage Monitor - CI/CD Pipeline
-#
-# On push to main:
-#   1. Runs tests
-#   2. Builds Docker image
-#   3. Pushes to GitHub Container Registry
-
 name: Test, Build & Push
 
 on:
