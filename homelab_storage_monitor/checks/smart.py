@@ -247,13 +247,45 @@ class SmartCheck(BaseCheck):
                 if not test_entry["passed"]:
                     results["has_errors"] = True
 
-        # Get error log count (ATA style)
+        # Get error log count and details (ATA style)
         error_log = smart_data.get("ata_smart_error_log", {})
         if error_log:
             summary = error_log.get("summary", {})
             results["error_count"] = summary.get("count", 0)
             if results["error_count"] > 0:
                 results["has_errors"] = True
+
+            # Extract detailed error entries
+            error_entries = []
+            error_table = summary.get("table", [])
+            for entry in error_table[:10]:  # Keep last 10 errors
+                error_num = entry.get("error_number", 0)
+                lifetime_hours = entry.get("lifetime_hours", 0)
+                state = entry.get("device_state", {}).get("string", "Unknown")
+
+                # Get error details from the commands
+                error_struct = entry.get("error", {})
+                error_type = error_struct.get("string", "Unknown")
+
+                # Build details from error registers if available
+                details_parts = []
+                if "command" in error_struct:
+                    cmd = error_struct["command"]
+                    cmd_name = cmd.get("name", "")
+                    if cmd_name:
+                        details_parts.append(cmd_name)
+                if "lba" in error_struct:
+                    details_parts.append(f"LBA {error_struct['lba']}")
+
+                error_entries.append({
+                    "error_number": error_num,
+                    "lifetime_hours": lifetime_hours,
+                    "state": state,
+                    "type": error_type,
+                    "details": " - ".join(details_parts) if details_parts else "N/A",
+                })
+
+            results["error_entries"] = error_entries
 
         # NVMe style - check for error log entries
         nvme_health = smart_data.get("nvme_smart_health_information_log", {})
@@ -262,6 +294,15 @@ class SmartCheck(BaseCheck):
             results["error_count"] = err_entries
             if err_entries > 0:
                 results["has_errors"] = True
+                # NVMe error log structure is different, add placeholder
+                if "error_entries" not in results:
+                    results["error_entries"] = [{
+                        "error_number": i + 1,
+                        "lifetime_hours": 0,
+                        "state": "NVMe",
+                        "type": "NVMe Error",
+                        "details": f"Error log entry {i + 1} of {err_entries}",
+                    } for i in range(min(err_entries, 10))]
 
         return results
 

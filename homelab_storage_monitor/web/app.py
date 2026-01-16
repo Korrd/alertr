@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 from homelab_storage_monitor.config import Config, load_config
 from homelab_storage_monitor.db import Database
@@ -222,6 +223,9 @@ def create_app(config: Config | None = None) -> FastAPI:
                 except (json.JSONDecodeError, TypeError):
                     pass
 
+        # Get all acknowledgments
+        disk_acks = db.get_all_smart_acks()
+
         # Group by disk
         disks: dict[str, dict] = {}
         for m in health_metrics:
@@ -232,6 +236,7 @@ def create_app(config: Config | None = None) -> FastAPI:
                     "attrs": {},
                     "info": disk_infos.get(disk, {}),
                     "selftest": disk_selftests.get(disk, {}),
+                    "ack": disk_acks.get(disk),
                 }
             disks[disk]["health"].append(m)
 
@@ -244,6 +249,7 @@ def create_app(config: Config | None = None) -> FastAPI:
                     "attrs": {},
                     "info": disk_infos.get(disk, {}),
                     "selftest": disk_selftests.get(disk, {}),
+                    "ack": disk_acks.get(disk),
                 }
             if attr not in disks[disk]["attrs"]:
                 disks[disk]["attrs"][attr] = []
@@ -365,6 +371,48 @@ def create_app(config: Config | None = None) -> FastAPI:
     ) -> list[dict[str, Any]]:
         """Get all open issues."""
         return db.get_open_issues()
+
+    # -------------------------------------------------------------------------
+    # SMART Acknowledgment API
+    # -------------------------------------------------------------------------
+
+    class AckRequest(BaseModel):
+        disk: str
+        error_count: int
+        note: str | None = None
+
+    @app.post("/api/smart/acknowledge")
+    async def api_ack_smart_errors(
+        req: AckRequest,
+        db: Database = Depends(get_db),
+        _auth: None = Depends(require_auth),
+    ) -> dict[str, str]:
+        """Acknowledge SMART errors for a disk."""
+        db.save_smart_ack(
+            disk=req.disk,
+            error_count=req.error_count,
+            acked_by="user",
+            note=req.note,
+        )
+        return {"status": "ok", "disk": req.disk}
+
+    @app.delete("/api/smart/acknowledge/{disk:path}")
+    async def api_delete_smart_ack(
+        disk: str,
+        db: Database = Depends(get_db),
+        _auth: None = Depends(require_auth),
+    ) -> dict[str, Any]:
+        """Remove acknowledgment for a disk."""
+        deleted = db.delete_smart_ack(disk)
+        return {"status": "ok" if deleted else "not_found", "disk": disk}
+
+    @app.get("/api/smart/acknowledgments")
+    async def api_get_smart_acks(
+        db: Database = Depends(get_db),
+        _auth: None = Depends(require_auth),
+    ) -> dict[str, dict[str, Any]]:
+        """Get all SMART acknowledgments."""
+        return db.get_all_smart_acks()
 
     @app.get("/health")
     async def health() -> dict[str, str]:

@@ -81,9 +81,49 @@
             {% endif %}
         </div>
 
+        {% if data.attrs %}
+        <h4>Key Attributes</h4>
+        <div class="grid">
+            {% for attr_id, metrics in data.attrs.items() %}
+            {% set attr_id_int = attr_id | int %}
+            {% set attr_info = get_attr_info(attr_id_int) %}
+            {% set value = metrics[0].value_num | int %}
+            {% set is_temp = attr_id_int in [190, 194, 1001] %}
+            {% set is_spinup = attr_id_int == 3 %}
+            {% set is_pct = attr_id_int in [1002, 1003] %}
+            {% set is_gb = attr_id_int in [1008, 1009] %}
+            {% set is_nvme = attr_id_int >= 1000 %}
+            {% set is_critical = attr_info.importance == Importance.CRITICAL and value > 0 and attr_info.higher_is_worse %}
+            {% set is_warning = attr_info.importance == Importance.HIGH and value > 0 and attr_info.higher_is_worse %}
+            {% set spare_low = attr_id_int == 1003 and value < 20 %}
+            <div class="mini-card">
+                <div class="tooltip-wrapper">
+                    <div class="attr-name">{{ attr_info.name }}</div>
+                    <div class="attr-id">{% if is_nvme %}NVMe{% else %}ID {{ attr_id }}{% endif %}</div>
+                    <div class="tooltip-content">
+                        <div class="tooltip-title">{{ attr_info.name }}</div>
+                        <div class="tooltip-id">{% if is_nvme %}NVMe Health Metric{% else %}SMART Attribute #{{ attr_id }}{% endif %}</div>
+                        <div class="tooltip-desc">{{ attr_info.description }}</div>
+                        <span class="tooltip-importance importance-{{ attr_info.importance.value }}">
+                            {{ attr_info.importance.value }} importance
+                        </span>
+                    </div>
+                </div>
+                <div class="attr-value {% if is_critical %}value-critical{% elif is_warning %}value-warning{% elif spare_low %}value-warning{% elif is_temp and value > 50 %}value-warning{% elif is_temp and value > 60 %}value-critical{% else %}value-normal{% endif %}">
+                    {{ value }}{% if is_temp %}°C{% elif is_spinup %}ms{% elif is_pct %}%{% elif is_gb %}GB{% endif %}
+                </div>
+                <div class="chart-container-small">
+                    <canvas id="attr-{{ disk | replace('/', '-') }}-{{ attr_id }}"></canvas>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {# Self-Test & Error Log Section - at bottom #}
         {% if data.selftest %}
         <div class="selftest-section">
-            <h4>Self-Test Results</h4>
+            <h4>Self-Test & Error Log</h4>
             <div class="selftest-grid">
                 {% if data.selftest.last_short %}
                 <div class="selftest-item">
@@ -125,9 +165,21 @@
 
                 <div class="selftest-item">
                     <span class="selftest-label">Error Log</span>
-                    <span class="selftest-value {% if data.selftest.error_count == 0 %}test-passed{% else %}test-failed{% endif %}">
-                        {% if data.selftest.error_count == 0 %}✓ Clean{% else %}{{ data.selftest.error_count }} error(s){% endif %}
+                    {% set is_acked = data.ack and data.ack.error_count_acked >= data.selftest.error_count %}
+                    <span class="selftest-value {% if data.selftest.error_count == 0 %}test-passed{% elif is_acked %}test-acked{% else %}test-failed{% endif %}">
+                        {% if data.selftest.error_count == 0 %}
+                            ✓ Clean
+                        {% elif is_acked %}
+                            ✓ {{ data.selftest.error_count }} error(s) - ACK'd
+                        {% else %}
+                            {{ data.selftest.error_count }} error(s)
+                        {% endif %}
                     </span>
+                    {% if data.selftest.error_count > 0 %}
+                    <button class="btn-link selftest-detail" onclick="toggleErrorLog('{{ disk | replace('/', '-') }}')">
+                        View details
+                    </button>
+                    {% endif %}
                 </div>
 
                 {% if data.selftest.test_count is defined and data.selftest.test_count > 0 %}
@@ -137,49 +189,83 @@
                 </div>
                 {% endif %}
             </div>
-        </div>
-        {% endif %}
 
-        {% if data.attrs %}
-        <h4>Key Attributes</h4>
-        <div class="grid">
-            {% for attr_id, metrics in data.attrs.items() %}
-            {% set attr_id_int = attr_id | int %}
-            {% set attr_info = get_attr_info(attr_id_int) %}
-            {% set value = metrics[0].value_num | int %}
-            {% set is_temp = attr_id_int in [190, 194, 1001] %}
-            {% set is_spinup = attr_id_int == 3 %}
-            {% set is_pct = attr_id_int in [1002, 1003] %}
-            {% set is_gb = attr_id_int in [1008, 1009] %}
-            {% set is_nvme = attr_id_int >= 1000 %}
-            {% set is_critical = attr_info.importance == Importance.CRITICAL and value > 0 and attr_info.higher_is_worse %}
-            {% set is_warning = attr_info.importance == Importance.HIGH and value > 0 and attr_info.higher_is_worse %}
-            {% set spare_low = attr_id_int == 1003 and value < 20 %}
-            <div class="mini-card">
-                <div class="tooltip-wrapper">
-                    <div class="attr-name">{{ attr_info.name }}</div>
-                    <div class="attr-id">{% if is_nvme %}NVMe{% else %}ID {{ attr_id }}{% endif %}</div>
-                    <div class="tooltip-content">
-                        <div class="tooltip-title">{{ attr_info.name }}</div>
-                        <div class="tooltip-id">{% if is_nvme %}NVMe Health Metric{% else %}SMART Attribute #{{ attr_id }}{% endif %}</div>
-                        <div class="tooltip-desc">{{ attr_info.description }}</div>
-                        <span class="tooltip-importance importance-{{ attr_info.importance.value }}">
-                            {{ attr_info.importance.value }} importance
-                        </span>
+            {# Expandable Error Log Details #}
+            {% if data.selftest.error_count > 0 %}
+            <div id="error-log-{{ disk | replace('/', '-') }}" class="error-log-details" style="display: none;">
+                <div class="error-log-header">
+                    <h5>Error Log Entries</h5>
+                    {% if data.ack %}
+                    <div class="ack-status">
+                        <span class="ack-badge">✓ Acknowledged</span>
+                        <span class="ack-info">by {{ data.ack.acked_by }} on {{ data.ack.acked_at[:10] }}</span>
+                        {% if data.ack.note %}
+                        <div class="ack-note">Note: {{ data.ack.note }}</div>
+                        {% endif %}
                     </div>
+                    {% else %}
+                    <button class="btn btn-ack" onclick="showAckModal('{{ disk }}', {{ data.selftest.error_count }})">
+                        Acknowledge
+                    </button>
+                    {% endif %}
                 </div>
-                <div class="attr-value {% if is_critical %}value-critical{% elif is_warning %}value-warning{% elif spare_low %}value-warning{% elif is_temp and value > 50 %}value-warning{% elif is_temp and value > 60 %}value-critical{% else %}value-normal{% endif %}">
-                    {{ value }}{% if is_temp %}°C{% elif is_spinup %}ms{% elif is_pct %}%{% elif is_gb %}GB{% endif %}
-                </div>
-                <div class="chart-container-small">
-                    <canvas id="attr-{{ disk | replace('/', '-') }}-{{ attr_id }}"></canvas>
-                </div>
+
+                {% if data.selftest.error_entries %}
+                <table class="error-log-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Lifetime Hours</th>
+                            <th>State</th>
+                            <th>Type</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in data.selftest.error_entries %}
+                        <tr>
+                            <td>{{ entry.error_number }}</td>
+                            <td>{{ entry.lifetime_hours }}</td>
+                            <td>{{ entry.state }}</td>
+                            <td>{{ entry.type }}</td>
+                            <td class="error-detail-cell">{{ entry.details }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted">Error log details not available. Run collector to fetch detailed logs.</p>
+                {% endif %}
             </div>
-            {% endfor %}
+            {% endif %}
         </div>
         {% endif %}
     </section>
     {% endfor %}
+
+{# Acknowledgment Modal #}
+<div id="ack-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Acknowledge Errors</h3>
+            <button class="modal-close" onclick="hideAckModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Acknowledging errors will suppress warnings for this disk's current error count.</p>
+            <p><strong>Disk:</strong> <span id="ack-disk-name"></span></p>
+            <p><strong>Error Count:</strong> <span id="ack-error-count"></span></p>
+            <div class="form-group">
+                <label for="ack-note">Note (optional):</label>
+                <textarea id="ack-note" placeholder="e.g., False positive from faulty cable at hour 0"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="hideAckModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="submitAck()">Acknowledge</button>
+        </div>
+    </div>
+</div>
+
 {% else %}
 <section class="card">
     <div class="status-notice notice-info">
@@ -202,6 +288,71 @@
 
 {% block scripts %}
 <script>
+// Error log toggle
+function toggleErrorLog(diskId) {
+    const el = document.getElementById('error-log-' + diskId);
+    if (el) {
+        el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+// Acknowledgment modal
+let currentAckDisk = null;
+let currentAckErrorCount = 0;
+
+function showAckModal(disk, errorCount) {
+    currentAckDisk = disk;
+    currentAckErrorCount = errorCount;
+    document.getElementById('ack-disk-name').textContent = disk;
+    document.getElementById('ack-error-count').textContent = errorCount;
+    document.getElementById('ack-note').value = '';
+    document.getElementById('ack-modal').style.display = 'flex';
+}
+
+function hideAckModal() {
+    document.getElementById('ack-modal').style.display = 'none';
+    currentAckDisk = null;
+    currentAckErrorCount = 0;
+}
+
+async function submitAck() {
+    if (!currentAckDisk) return;
+
+    const note = document.getElementById('ack-note').value.trim();
+
+    try {
+        const response = await fetch('/api/smart/acknowledge', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                disk: currentAckDisk,
+                error_count: currentAckErrorCount,
+                note: note
+            })
+        });
+
+        if (response.ok) {
+            hideAckModal();
+            window.location.reload();
+        } else {
+            const data = await response.json();
+            alert('Failed to acknowledge: ' + (data.detail || 'Unknown error'));
+        }
+    } catch (err) {
+        alert('Failed to acknowledge: ' + err.message);
+    }
+}
+
+// Close modal on outside click
+document.getElementById('ack-modal')?.addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideAckModal();
+    }
+});
+
+// Charts
 {% for disk, data in disks.items() %}
     {% for attr_id, metrics in data.attrs.items() %}
     (function() {

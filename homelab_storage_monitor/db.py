@@ -102,6 +102,16 @@ CREATE TABLE IF NOT EXISTS smart_history (
     raw_value INTEGER NOT NULL
 );
 
+-- SMART error acknowledgments
+CREATE TABLE IF NOT EXISTS smart_acknowledgments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    disk TEXT NOT NULL UNIQUE,
+    error_count_acked INTEGER NOT NULL,
+    acked_by TEXT NOT NULL,
+    acked_at TEXT NOT NULL,
+    note TEXT
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_metrics_ts_name ON metrics(ts, metric_name);
 CREATE INDEX IF NOT EXISTS idx_events_ts_severity ON events(ts, severity);
@@ -109,6 +119,7 @@ CREATE INDEX IF NOT EXISTS idx_check_results_run_id ON check_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_ts ON runs(ts_start);
 CREATE INDEX IF NOT EXISTS idx_sync_history_vg_lv ON sync_history(vg, lv, ts);
 CREATE INDEX IF NOT EXISTS idx_smart_history_disk ON smart_history(disk, attr_id, ts);
+CREATE INDEX IF NOT EXISTS idx_smart_acks_disk ON smart_acknowledgments(disk);
 """
 
 
@@ -539,6 +550,83 @@ class Database:
                 (disk, last_ts),
             )
             return {row["attr_id"]: row["raw_value"] for row in cur}
+
+    # -------------------------------------------------------------------------
+    # SMART Acknowledgments
+    # -------------------------------------------------------------------------
+
+    def save_smart_ack(
+        self,
+        disk: str,
+        error_count: int,
+        acked_by: str = "user",
+        note: str | None = None,
+    ) -> None:
+        """Save or update a SMART error acknowledgment for a disk."""
+        ts = datetime.now().isoformat()
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO smart_acknowledgments (disk, error_count_acked, acked_by, acked_at, note)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(disk) DO UPDATE SET
+                    error_count_acked = excluded.error_count_acked,
+                    acked_by = excluded.acked_by,
+                    acked_at = excluded.acked_at,
+                    note = excluded.note
+                """,
+                (disk, error_count, acked_by, ts, note),
+            )
+
+    def get_smart_ack(self, disk: str) -> dict[str, Any] | None:
+        """Get acknowledgment for a specific disk."""
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT disk, error_count_acked, acked_by, acked_at, note
+                FROM smart_acknowledgments WHERE disk = ?
+                """,
+                (disk,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return {
+                "disk": row["disk"],
+                "error_count_acked": row["error_count_acked"],
+                "acked_by": row["acked_by"],
+                "acked_at": row["acked_at"],
+                "note": row["note"],
+            }
+
+    def get_all_smart_acks(self) -> dict[str, dict[str, Any]]:
+        """Get all SMART acknowledgments, keyed by disk."""
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT disk, error_count_acked, acked_by, acked_at, note
+                FROM smart_acknowledgments
+                """
+            )
+            return {
+                row["disk"]: {
+                    "disk": row["disk"],
+                    "error_count_acked": row["error_count_acked"],
+                    "acked_by": row["acked_by"],
+                    "acked_at": row["acked_at"],
+                    "note": row["note"],
+                }
+                for row in cur
+            }
+
+    def delete_smart_ack(self, disk: str) -> bool:
+        """Delete acknowledgment for a disk. Returns True if deleted."""
+        with self.connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM smart_acknowledgments WHERE disk = ?",
+                (disk,),
+            )
+            return cur.rowcount > 0
 
     # -------------------------------------------------------------------------
     # Retention / Cleanup
