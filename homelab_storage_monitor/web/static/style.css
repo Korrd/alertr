@@ -83,6 +83,8 @@ body {
 .nav-logo {
     height: 24px;
     width: auto;
+    vertical-align: middle;
+    object-fit: contain;
 }
 
 .nav-links {
