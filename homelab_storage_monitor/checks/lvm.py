@@ -73,7 +73,7 @@ class LvmCheck(BaseCheck):
         """Query LVM for logical volume information."""
         cmd = [
             "lvs", "-a",
-            "-o", "vg_name,lv_name,segtype,lv_attr,copy_percent,devices,lv_health",
+            "-o", "vg_name,lv_name,segtype,lv_attr,copy_percent,devices,lv_health_status",
             "--reportformat", "json",
             "--units", "b",
         ]
@@ -122,7 +122,7 @@ class LvmCheck(BaseCheck):
         segtype = lv_info.get("segtype", "")
         lv_attr = lv_info.get("lv_attr", "")
         copy_percent_str = lv_info.get("copy_percent", "")
-        lv_health = lv_info.get("lv_health", "")
+        lv_health = lv_info.get("lv_health_status", "")
         devices = lv_info.get("devices", "")
 
         details: dict[str, Any] = {

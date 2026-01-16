@@ -34,9 +34,13 @@ services:
       # Device access for SMART checks (required)
       - /dev:/dev
 
-      # LVM metadata (required for LVM checks)
+      # LVM metadata and runtime (required for LVM checks)
       - /run/lvm:/run/lvm:rw
+      - /run/lock/lvm:/run/lock/lvm:rw
       - /etc/lvm:/etc/lvm:ro
+
+      # System device mapper (needed for LVM)
+      - /sys:/sys:ro
 
       # udev for device information (recommended)
       - /run/udev:/run/udev:ro
