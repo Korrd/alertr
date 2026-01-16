@@ -81,10 +81,11 @@ body {
 }
 
 .nav-logo {
-    height: 24px;
+    height: 32px;
     width: auto;
     vertical-align: middle;
     object-fit: contain;
+    border-radius: 6px;
 }
 
 .nav-links {
