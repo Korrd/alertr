@@ -222,7 +222,7 @@ class SmartCheck(BaseCheck):
 
     def _parse_spinup_time(self, raw_value: int) -> int:
         """Extract spin-up time from SMART raw value.
-        
+
         Spin-up time raw value format varies by manufacturer:
         - Some pack current time in lower 16 bits, average in upper
         - Some use lower 16 bits for milliseconds
