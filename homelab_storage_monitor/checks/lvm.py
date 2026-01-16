@@ -85,8 +85,17 @@ class LvmCheck(BaseCheck):
             timeout=30,
         )
 
+        # lvs returns non-zero with empty stderr when no LVM is configured
         if result.returncode != 0:
-            raise RuntimeError(f"lvs failed: {result.stderr}")
+            if result.stderr.strip():
+                raise RuntimeError(f"lvs failed: {result.stderr}")
+            # No LVM configured - return empty list
+            logger.debug("No LVM volumes found (lvs returned non-zero with no error)")
+            return []
+
+        # Handle empty output
+        if not result.stdout.strip():
+            return []
 
         data = json.loads(result.stdout)
         return data.get("report", [{}])[0].get("lv", [])

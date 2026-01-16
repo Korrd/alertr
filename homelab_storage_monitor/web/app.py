@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from homelab_storage_monitor.config import Config, load_config
 from homelab_storage_monitor.db import Database
 from homelab_storage_monitor.models import EventType, Status
+from homelab_storage_monitor.smart_attrs import get_attr_info, Importance
 
 # Paths for templates and static files
 PACKAGE_DIR = Path(__file__).parent
@@ -43,6 +44,8 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     # Add template globals
     templates.env.globals["now"] = datetime.now
+    templates.env.globals["get_attr_info"] = get_attr_info
+    templates.env.globals["Importance"] = Importance
 
     # Setup static files
     if STATIC_DIR.exists():

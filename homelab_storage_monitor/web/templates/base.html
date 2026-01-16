@@ -1,11 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="auto">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}HSM{% endblock %} - Homelab Storage Monitor</title>
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script>
+        // Theme handling - runs immediately to prevent flash
+        (function() {
+            const stored = localStorage.getItem('hsm-theme') || 'auto';
+            document.documentElement.setAttribute('data-theme', stored);
+        })();
+    </script>
     {% block head %}{% endblock %}
 </head>
 <body>
@@ -20,6 +27,11 @@
             <li><a href="/smart" class="{% if request.url.path == '/smart' %}active{% endif %}">SMART</a></li>
             <li><a href="/events" class="{% if request.url.path == '/events' %}active{% endif %}">Events</a></li>
         </ul>
+        <div class="theme-toggle">
+            <button id="theme-btn" class="theme-btn" title="Toggle theme" aria-label="Toggle theme">
+                <span class="theme-icon">🌓</span>
+            </button>
+        </div>
     </nav>
 
     <main class="container">
@@ -29,6 +41,32 @@
     <footer class="footer">
         <p>Homelab Storage Monitor v1.0.0 | Last updated: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}</p>
     </footer>
+
+    <script>
+        // Theme toggle functionality
+        (function() {
+            const btn = document.getElementById('theme-btn');
+            const icon = btn.querySelector('.theme-icon');
+            const themes = ['light', 'dark', 'auto'];
+            const icons = { light: '☀️', dark: '🌙', auto: '🌓' };
+
+            function updateIcon() {
+                const current = document.documentElement.getAttribute('data-theme') || 'auto';
+                icon.textContent = icons[current];
+            }
+
+            btn.addEventListener('click', function() {
+                const current = document.documentElement.getAttribute('data-theme') || 'auto';
+                const idx = themes.indexOf(current);
+                const next = themes[(idx + 1) % themes.length];
+                document.documentElement.setAttribute('data-theme', next);
+                localStorage.setItem('hsm-theme', next);
+                updateIcon();
+            });
+
+            updateIcon();
+        })();
+    </script>
 
     {% block scripts %}{% endblock %}
 </body>

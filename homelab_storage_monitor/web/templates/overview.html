@@ -22,6 +22,7 @@
 
 <section class="card">
     <h3>Check Results</h3>
+    {% if latest_run.check_results %}
     <table class="table">
         <thead>
             <tr>
@@ -44,10 +45,33 @@
             {% endfor %}
         </tbody>
     </table>
+    {% else %}
+    <div class="status-notice notice-warning">
+        <div class="status-notice-icon">⚠️</div>
+        <div class="status-notice-content">
+            <div class="status-notice-title">No Check Results</div>
+            <div class="status-notice-desc">
+                The collector ran but returned no check results. Verify that at least one check is enabled in your configuration.
+            </div>
+        </div>
+    </div>
+    {% endif %}
 </section>
 {% else %}
 <section class="card">
-    <p class="text-muted">No check runs recorded yet. Start the collector to begin monitoring.</p>
+    <div class="status-notice notice-info">
+        <div class="status-notice-icon">🚀</div>
+        <div class="status-notice-content">
+            <div class="status-notice-title">Waiting for First Check</div>
+            <div class="status-notice-desc">
+                No check runs recorded yet. The collector service needs to complete its first health check.
+                <ul style="margin-top: 0.5rem; margin-left: 1rem;">
+                    <li>Verify the collector container is running: <code>docker-compose logs hsm_collector</code></li>
+                    <li>First check runs immediately on startup, then every 15 minutes (configurable)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
 </section>
 {% endif %}
 

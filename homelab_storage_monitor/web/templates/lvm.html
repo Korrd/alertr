@@ -5,6 +5,7 @@
 {% block content %}
 <h1>LVM RAID Status</h1>
 
+{% if sync_metrics or degraded_metrics %}
 <section class="card">
     <h3>Sync Percentage</h3>
     {% if sync_metrics %}
@@ -51,6 +52,25 @@
     <p class="text-muted">No degraded state history available.</p>
     {% endif %}
 </section>
+{% else %}
+<section class="card">
+    <div class="status-notice notice-info">
+        <div class="status-notice-icon">🔧</div>
+        <div class="status-notice-content">
+            <div class="status-notice-title">No LVM Data Available</div>
+            <div class="status-notice-desc">
+                LVM metrics haven't been collected yet. This could mean:
+                <ul style="margin-top: 0.5rem; margin-left: 1rem;">
+                    <li>LVM is not configured on this host</li>
+                    <li>LVM monitoring is disabled in config (<code>lvm.enabled: false</code>)</li>
+                    <li>The configured VG/LV doesn't exist</li>
+                    <li>The collector hasn't run its first check yet</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</section>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

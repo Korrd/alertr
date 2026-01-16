@@ -10,8 +10,11 @@
     <section class="card">
         <h3>{{ mount }}</h3>
         {% if metrics %}
+        {% set usage = metrics[0].value_num %}
         <div class="metric-current">
-            <span class="metric-value">{{ "%.1f" | format(metrics[0].value_num) }}%</span>
+            <span class="metric-value {% if usage >= 95 %}value-critical{% elif usage >= 85 %}value-warning{% else %}value-normal{% endif %}">
+                {{ "%.1f" | format(usage) }}%
+            </span>
             <span class="metric-label">Current Usage</span>
         </div>
         <div class="chart-container">
@@ -22,7 +25,20 @@
     {% endfor %}
 {% else %}
 <section class="card">
-    <p class="text-muted">No filesystem metrics recorded yet.</p>
+    <div class="status-notice notice-info">
+        <div class="status-notice-icon">📁</div>
+        <div class="status-notice-content">
+            <div class="status-notice-title">No Filesystem Data Available</div>
+            <div class="status-notice-desc">
+                Filesystem metrics haven't been collected yet. This could mean:
+                <ul style="margin-top: 0.5rem; margin-left: 1rem;">
+                    <li>Filesystem monitoring is disabled in config</li>
+                    <li>No mountpoints are configured</li>
+                    <li>The collector hasn't run its first check yet</li>
+                </ul>
+            </div>
+        </div>
+    </div>
 </section>
 {% endif %}
 {% endblock %}

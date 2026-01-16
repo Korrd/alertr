@@ -24,9 +24,26 @@
         <h4>Key Attributes</h4>
         <div class="grid">
             {% for attr_id, metrics in data.attrs.items() %}
+            {% set attr_info = get_attr_info(attr_id | int) %}
+            {% set value = metrics[0].value_num | int %}
+            {% set is_critical = attr_info.importance == Importance.CRITICAL and value > 0 and attr_info.higher_is_worse %}
+            {% set is_warning = attr_info.importance == Importance.HIGH and value > 0 and attr_info.higher_is_worse %}
             <div class="mini-card">
-                <div class="attr-id">Attr {{ attr_id }}</div>
-                <div class="attr-value">{{ metrics[0].value_num | int }}</div>
+                <div class="tooltip-wrapper">
+                    <div class="attr-name">{{ attr_info.name }}</div>
+                    <div class="attr-id">ID {{ attr_id }}</div>
+                    <div class="tooltip-content">
+                        <div class="tooltip-title">{{ attr_info.name }}</div>
+                        <div class="tooltip-id">SMART Attribute #{{ attr_id }}</div>
+                        <div class="tooltip-desc">{{ attr_info.description }}</div>
+                        <span class="tooltip-importance importance-{{ attr_info.importance.value }}">
+                            {{ attr_info.importance.value }} importance
+                        </span>
+                    </div>
+                </div>
+                <div class="attr-value {% if is_critical %}value-critical{% elif is_warning %}value-warning{% else %}value-normal{% endif %}">
+                    {{ value }}
+                </div>
                 <div class="chart-container-small">
                     <canvas id="attr-{{ disk | replace('/', '-') }}-{{ attr_id }}"></canvas>
                 </div>
@@ -38,7 +55,20 @@
     {% endfor %}
 {% else %}
 <section class="card">
-    <p class="text-muted">No SMART metrics recorded yet.</p>
+    <div class="status-notice notice-info">
+        <div class="status-notice-icon">💾</div>
+        <div class="status-notice-content">
+            <div class="status-notice-title">No SMART Data Available</div>
+            <div class="status-notice-desc">
+                SMART metrics haven't been collected yet. This could mean:
+                <ul style="margin-top: 0.5rem; margin-left: 1rem;">
+                    <li>The collector hasn't run its first check yet</li>
+                    <li>SMART monitoring is disabled in config</li>
+                    <li>No disks are configured for monitoring</li>
+                </ul>
+            </div>
+        </div>
+    </div>
 </section>
 {% endif %}
 {% endblock %}
@@ -54,13 +84,25 @@
         const data = {{ metrics | tojson }};
         const values = data.map(m => m.value_num).reverse().slice(-50);
 
+        // Determine chart color based on importance
+        const attrId = {{ attr_id }};
+        const criticalAttrs = [5, 184, 187, 196, 197, 198, 220];
+        const highAttrs = [10, 188, 189, 199, 201, 202, 224, 227, 230, 231, 232, 233, 235];
+
+        let borderColor = '#6c757d';
+        if (criticalAttrs.includes(attrId) && values[values.length - 1] > 0) {
+            borderColor = '#dc3545';
+        } else if (highAttrs.includes(attrId) && values[values.length - 1] > 0) {
+            borderColor = '#fd7e14';
+        }
+
         new Chart(ctx, {
             type: 'line',
             data: {
                 labels: values.map((_, i) => i),
                 datasets: [{
                     data: values,
-                    borderColor: '#6c757d',
+                    borderColor: borderColor,
                     borderWidth: 1,
                     pointRadius: 0,
                     tension: 0.1
