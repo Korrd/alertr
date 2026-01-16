@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 import secrets
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -48,69 +48,66 @@ def create_app(config: Config | None = None) -> FastAPI:
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # Security
-    security = HTTPBasic(auto_error=False)
-
     def get_db() -> Database:
         return app.state.db
 
-    async def get_optional_credentials(
-        request: Request,
-    ) -> HTTPBasicCredentials | None:
-        """Get credentials if provided, None otherwise."""
-        auth = request.headers.get("Authorization")
-        if not auth:
-            return None
-        try:
-            return await security(request)
-        except Exception:
-            return None
-
-    def verify_auth(
-        credentials: HTTPBasicCredentials | None,
-    ) -> bool:
-        """Verify authentication if enabled."""
+    async def require_auth(request: Request) -> None:
+        """Require authentication if enabled."""
         cfg: Config = app.state.config
 
+        # If auth is disabled, allow all requests
         if not cfg.dashboard.auth_enabled:
-            return True
+            return
 
-        if credentials is None:
-            return False
+        # Get authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+                headers={"WWW-Authenticate": "Basic"},
+            )
+
+        # Parse basic auth
+        try:
+            scheme, credentials = auth_header.split(" ", 1)
+            if scheme.lower() != "basic":
+                raise ValueError("Invalid scheme")
+            decoded = base64.b64decode(credentials).decode("utf-8")
+            username, password = decoded.split(":", 1)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials format",
+                headers={"WWW-Authenticate": "Basic"},
+            )
 
         # Check username/password
         if cfg.dashboard.auth_password:
             correct_username = secrets.compare_digest(
-                credentials.username.encode("utf-8"),
+                username.encode("utf-8"),
                 cfg.dashboard.auth_username.encode("utf-8"),
             )
             correct_password = secrets.compare_digest(
-                credentials.password.encode("utf-8"),
+                password.encode("utf-8"),
                 cfg.dashboard.auth_password.encode("utf-8"),
             )
             if correct_username and correct_password:
-                return True
+                return
 
         # Check bearer token (passed as password with any username)
         if cfg.dashboard.auth_token:
             if secrets.compare_digest(
-                credentials.password.encode("utf-8"),
+                password.encode("utf-8"),
                 cfg.dashboard.auth_token.encode("utf-8"),
             ):
-                return True
+                return
 
-        return False
-
-    async def require_auth(
-        credentials: Annotated[HTTPBasicCredentials | None, Depends(get_optional_credentials)],
-    ) -> None:
-        """Require authentication if enabled."""
-        if not verify_auth(credentials):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials",
-                headers={"WWW-Authenticate": "Basic"},
-            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
 
     # -------------------------------------------------------------------------
     # HTML Pages
