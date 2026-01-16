@@ -88,6 +88,7 @@
             {% set attr_info = get_attr_info(attr_id | int) %}
             {% set value = metrics[0].value_num | int %}
             {% set is_temp = attr_id | int in [190, 194] %}
+            {% set is_spinup = attr_id | int == 3 %}
             {% set is_critical = attr_info.importance == Importance.CRITICAL and value > 0 and attr_info.higher_is_worse %}
             {% set is_warning = attr_info.importance == Importance.HIGH and value > 0 and attr_info.higher_is_worse %}
             <div class="mini-card">
@@ -104,7 +105,7 @@
                     </div>
                 </div>
                 <div class="attr-value {% if is_critical %}value-critical{% elif is_warning %}value-warning{% elif is_temp and value > 50 %}value-warning{% elif is_temp and value > 60 %}value-critical{% else %}value-normal{% endif %}">
-                    {{ value }}{% if is_temp %}°C{% endif %}
+                    {{ value }}{% if is_temp %}°C{% elif is_spinup %}ms{% endif %}
                 </div>
                 <div class="chart-container-small">
                     <canvas id="attr-{{ disk | replace('/', '-') }}-{{ attr_id }}"></canvas>

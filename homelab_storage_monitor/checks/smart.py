@@ -201,7 +201,7 @@ class SmartCheck(BaseCheck):
 
     def _parse_temperature(self, raw_value: int, attr_id: int) -> int:
         """Extract temperature from SMART raw value.
-        
+
         Temperature attributes often pack current temp in lowest byte,
         with min/max/lifetime temps in higher bytes.
         """
@@ -220,27 +220,28 @@ class SmartCheck(BaseCheck):
         # If still unreasonable, return raw value masked
         return raw_value & 0xFF
 
-    def _analyze_smart(self, disk: str, smart_data: dict[str, Any]) -> CheckResult:
-        """Analyze SMART data and determine health status."""
-        thresholds = self.config.smart.thresholds
-        issues: list[str] = []
-        warnings: list[str] = []
+    def _parse_spinup_time(self, raw_value: int) -> int:
+        """Extract spin-up time from SMART raw value.
+        
+        Spin-up time raw value format varies by manufacturer:
+        - Some pack current time in lower 16 bits, average in upper
+        - Some use lower 16 bits for milliseconds
+        - Values should typically be 0-30000 ms range
+        """
+        # Try lower 16 bits first (most common)
+        spinup = raw_value & 0xFFFF
 
-        # Extract device info
-        device_info = self._extract_device_info(smart_data)
+        # Sanity check - spin-up should be reasonable (0-60 seconds)
+        if 0 <= spinup <= 60000:
+            return spinup
 
-        details: dict[str, Any] = {
-            "disk": disk,
-            "device_info": device_info,
-            "issues": [],
-            "warnings": [],
-            "attributes": {},
-        }
+        # Try lower 8 bits
+        spinup8 = raw_value & 0xFF
+        if 0 <= spinup8 <= 255:
+            return spinup8
 
-        # Store device info as metrics for the dashboard
-        labels = {"disk": disk}
-        if device_info.get("model"):
-            self._metrics.append(
+        # Return as-is if nothing works
+        return raw_value
                 Metric(name="disk_info", value_text=json.dumps(device_info), labels=labels)
             )
 
@@ -283,14 +284,17 @@ class SmartCheck(BaseCheck):
                 raw_value = int(raw_value.split()[0]) if raw_value else 0
 
             # Parse temperature attributes specially (190, 194)
+            # Parse spin-up time (3) specially
             display_value = raw_value
             if attr_id in (190, 194):
                 display_value = self._parse_temperature(raw_value, attr_id)
+            elif attr_id == 3:
+                display_value = self._parse_spinup_time(raw_value)
 
             current_attrs[attr_id] = raw_value
 
-            # Record metric (use display_value for temp, raw for others)
-            metric_value = display_value if attr_id in (190, 194) else raw_value
+            # Record metric (use display_value for specially parsed attrs)
+            metric_value = display_value
             self._metrics.append(
                 Metric(
                     name="smart_attr_raw",
