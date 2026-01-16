@@ -261,27 +261,32 @@ class SmartCheck(BaseCheck):
             for entry in error_table[:10]:  # Keep last 10 errors
                 error_num = entry.get("error_number", 0)
                 lifetime_hours = entry.get("lifetime_hours", 0)
-                state = entry.get("device_state", {}).get("string", "Unknown")
 
-                # Get error details from the commands
-                error_struct = entry.get("error", {})
-                error_type = error_struct.get("string", "Unknown")
+                # Error description is the main field
+                error_desc = entry.get("error_description", "Unknown")
 
-                # Build details from error registers if available
+                # Get the command that triggered the error from previous_commands
+                prev_cmds = entry.get("previous_commands", [])
+                cmd_name = ""
+                if prev_cmds:
+                    cmd_name = prev_cmds[0].get("command_name", "")
+
+                # Get completion registers for additional context
+                comp_regs = entry.get("completion_registers", {})
+                lba = comp_regs.get("lba", 0)
+
+                # Build details
                 details_parts = []
-                if "command" in error_struct:
-                    cmd = error_struct["command"]
-                    cmd_name = cmd.get("name", "")
-                    if cmd_name:
-                        details_parts.append(cmd_name)
-                if "lba" in error_struct:
-                    details_parts.append(f"LBA {error_struct['lba']}")
+                if cmd_name:
+                    details_parts.append(cmd_name)
+                if lba > 0:
+                    details_parts.append(f"LBA {lba}")
 
                 error_entries.append({
                     "error_number": error_num,
                     "lifetime_hours": lifetime_hours,
-                    "state": state,
-                    "type": error_type,
+                    "state": f"Hour {lifetime_hours}",
+                    "type": error_desc,
                     "details": " - ".join(details_parts) if details_parts else "N/A",
                 })
 
