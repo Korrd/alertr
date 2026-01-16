@@ -26,6 +26,14 @@ TEMPLATES_DIR = PACKAGE_DIR / "templates"
 STATIC_DIR = PACKAGE_DIR / "static"
 
 
+# Pydantic models for API requests
+class AckRequest(BaseModel):
+    """Request model for acknowledging SMART errors."""
+    disk: str
+    error_count: int
+    note: str | None = None
+
+
 def create_app(config: Config | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     if config is None:
@@ -375,11 +383,6 @@ def create_app(config: Config | None = None) -> FastAPI:
     # -------------------------------------------------------------------------
     # SMART Acknowledgment API
     # -------------------------------------------------------------------------
-
-    class AckRequest(BaseModel):
-        disk: str
-        error_count: int
-        note: str | None = None
 
     @app.post("/api/smart/acknowledge")
     async def api_ack_smart_errors(
