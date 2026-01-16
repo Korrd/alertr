@@ -77,7 +77,8 @@ class SmartCheck(BaseCheck):
 
     def _get_smart_data(self, disk: str) -> dict[str, Any]:
         """Query smartctl for disk information."""
-        cmd = ["smartctl", "-H", "-A", "-j", disk]
+        # Include -i for device info (model, serial, capacity, etc.)
+        cmd = ["smartctl", "-i", "-H", "-A", "-j", disk]
 
         result = subprocess.run(
             cmd,
@@ -128,18 +129,120 @@ class SmartCheck(BaseCheck):
 
         return data
 
+    def _extract_device_info(self, smart_data: dict[str, Any]) -> dict[str, Any]:
+        """Extract device information from smartctl output."""
+        info: dict[str, Any] = {}
+
+        # Model name - check multiple fields
+        model = smart_data.get("model_name", "")
+        if not model:
+            model = smart_data.get("model_family", "")
+        info["model"] = model
+
+        # Model family (brand/series)
+        info["family"] = smart_data.get("model_family", "")
+
+        # Serial number
+        info["serial"] = smart_data.get("serial_number", "")
+
+        # Firmware version
+        info["firmware"] = smart_data.get("firmware_version", "")
+
+        # Capacity - use user_capacity for readable form
+        user_cap = smart_data.get("user_capacity", {})
+        if isinstance(user_cap, dict):
+            info["capacity_bytes"] = user_cap.get("bytes", 0)
+            info["capacity"] = user_cap.get("bytes", 0)
+        else:
+            info["capacity_bytes"] = user_cap
+            info["capacity"] = user_cap
+
+        # Format capacity as human readable
+        if info.get("capacity_bytes"):
+            bytes_val = info["capacity_bytes"]
+            if bytes_val >= 1e12:
+                info["capacity_human"] = f"{bytes_val / 1e12:.1f} TB"
+            elif bytes_val >= 1e9:
+                info["capacity_human"] = f"{bytes_val / 1e9:.1f} GB"
+            else:
+                info["capacity_human"] = f"{bytes_val / 1e6:.1f} MB"
+        else:
+            info["capacity_human"] = "Unknown"
+
+        # Form factor
+        info["form_factor"] = smart_data.get("form_factor", {}).get("name", "")
+
+        # Rotation rate (0 = SSD)
+        rotation = smart_data.get("rotation_rate", 0)
+        info["rotation_rate"] = rotation
+        info["is_ssd"] = rotation == 0
+
+        # SATA version
+        sata = smart_data.get("sata_version", {})
+        if isinstance(sata, dict):
+            info["interface"] = sata.get("string", "")
+        else:
+            info["interface"] = str(sata) if sata else ""
+
+        # ATA version
+        info["ata_version"] = smart_data.get("ata_version", {}).get("string", "")
+
+        # SMART support
+        info["smart_supported"] = smart_data.get("smart_support", {}).get("available", False)
+        info["smart_enabled"] = smart_data.get("smart_support", {}).get("enabled", False)
+
+        # Power on hours (from attributes or directly)
+        info["power_on_hours"] = smart_data.get("power_on_time", {}).get("hours", 0)
+
+        # Device type
+        info["device_type"] = smart_data.get("device", {}).get("type", "")
+
+        return info
+
+    def _parse_temperature(self, raw_value: int, attr_id: int) -> int:
+        """Extract temperature from SMART raw value.
+        
+        Temperature attributes often pack current temp in lowest byte,
+        with min/max/lifetime temps in higher bytes.
+        """
+        # Temperature is typically in the lowest byte
+        temp = raw_value & 0xFF
+
+        # Sanity check - temps should be reasonable (0-100°C range typically)
+        if 0 <= temp <= 100:
+            return temp
+
+        # Some drives use different encoding, try second byte
+        temp2 = (raw_value >> 8) & 0xFF
+        if 0 <= temp2 <= 100:
+            return temp2
+
+        # If still unreasonable, return raw value masked
+        return raw_value & 0xFF
+
     def _analyze_smart(self, disk: str, smart_data: dict[str, Any]) -> CheckResult:
         """Analyze SMART data and determine health status."""
         thresholds = self.config.smart.thresholds
         issues: list[str] = []
         warnings: list[str] = []
 
+        # Extract device info
+        device_info = self._extract_device_info(smart_data)
+
         details: dict[str, Any] = {
             "disk": disk,
+            "device_info": device_info,
             "issues": [],
             "warnings": [],
             "attributes": {},
         }
+
+        # Store device info as metrics for the dashboard
+        labels = {"disk": disk}
+        if device_info.get("model"):
+            self._metrics.append(
+                Metric(name="disk_info", value_text=json.dumps(device_info), labels=labels)
+            )
 
         # Check overall SMART status
         smart_status = smart_data.get("smart_status", {})
@@ -179,13 +282,19 @@ class SmartCheck(BaseCheck):
                 # Sometimes raw value has additional text
                 raw_value = int(raw_value.split()[0]) if raw_value else 0
 
+            # Parse temperature attributes specially (190, 194)
+            display_value = raw_value
+            if attr_id in (190, 194):
+                display_value = self._parse_temperature(raw_value, attr_id)
+
             current_attrs[attr_id] = raw_value
 
-            # Record metric
+            # Record metric (use display_value for temp, raw for others)
+            metric_value = display_value if attr_id in (190, 194) else raw_value
             self._metrics.append(
                 Metric(
                     name="smart_attr_raw",
-                    value_num=float(raw_value),
+                    value_num=float(metric_value),
                     labels={**labels, "attr": str(attr_id)},
                 )
             )
@@ -193,6 +302,7 @@ class SmartCheck(BaseCheck):
             details["attributes"][attr_id] = {
                 "name": attr.get("name", f"attr_{attr_id}"),
                 "raw": raw_value,
+                "display_value": metric_value,
                 "value": attr.get("value"),
                 "worst": attr.get("worst"),
                 "thresh": attr.get("thresh"),

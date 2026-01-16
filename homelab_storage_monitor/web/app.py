@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import secrets
 from datetime import datetime
 from pathlib import Path
@@ -195,19 +196,32 @@ def create_app(config: Config | None = None) -> FastAPI:
         # Get attribute metrics
         attr_metrics = db.get_metrics("smart_attr_raw", limit=1000)
 
+        # Get disk info metrics
+        disk_info_metrics = db.get_metrics("disk_info", limit=100)
+
+        # Parse disk info (latest per disk)
+        disk_infos: dict[str, dict] = {}
+        for m in disk_info_metrics:
+            disk = m["labels"].get("disk", "unknown")
+            if disk not in disk_infos and m.get("value_text"):
+                try:
+                    disk_infos[disk] = json.loads(m["value_text"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
         # Group by disk
         disks: dict[str, dict] = {}
         for m in health_metrics:
             disk = m["labels"].get("disk", "unknown")
             if disk not in disks:
-                disks[disk] = {"health": [], "attrs": {}}
+                disks[disk] = {"health": [], "attrs": {}, "info": disk_infos.get(disk, {})}
             disks[disk]["health"].append(m)
 
         for m in attr_metrics:
             disk = m["labels"].get("disk", "unknown")
             attr = m["labels"].get("attr", "unknown")
             if disk not in disks:
-                disks[disk] = {"health": [], "attrs": {}}
+                disks[disk] = {"health": [], "attrs": {}, "info": disk_infos.get(disk, {})}
             if attr not in disks[disk]["attrs"]:
                 disks[disk]["attrs"][attr] = []
             disks[disk]["attrs"][attr].append(m)

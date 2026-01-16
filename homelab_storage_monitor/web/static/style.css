@@ -554,3 +554,63 @@ body {
         border-color: var(--color-border);
     }
 }
+
+/* ============================================
+   Disk Info Display
+   ============================================ */
+.disk-card {
+    border-left: 4px solid var(--color-primary);
+}
+
+.disk-header {
+    margin-bottom: 1.5rem;
+}
+
+.disk-title {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.disk-title h3 {
+    margin: 0;
+    font-family: monospace;
+    font-size: 1.1rem;
+}
+
+.disk-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--color-hover);
+    border-radius: 6px;
+}
+
+.disk-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.disk-info-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-muted);
+    font-weight: 500;
+}
+
+.disk-info-value {
+    font-size: 0.9rem;
+    color: var(--color-text);
+    font-weight: 500;
+    word-break: break-word;
+}
+
+/* Highlighted disk info for model */
+.disk-info-item:first-child .disk-info-value {
+    font-weight: 600;
+    color: var(--color-primary);
+}

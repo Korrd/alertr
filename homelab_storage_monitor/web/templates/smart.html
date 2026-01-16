@@ -7,18 +7,79 @@
 
 {% if disks %}
     {% for disk, data in disks.items() %}
-    <section class="card">
-        <h3>{{ disk }}</h3>
-
-        {% if data.health %}
-        <div class="metric-current">
-            {% if data.health[0].value_num == 1 %}
-            <span class="status-badge badge-ok" style="font-size: 1.5rem;">HEALTHY</span>
-            {% else %}
-            <span class="status-badge badge-crit" style="font-size: 1.5rem;">FAILING</span>
+    <section class="card disk-card">
+        <div class="disk-header">
+            <div class="disk-title">
+                <h3>{{ disk }}</h3>
+                {% if data.health %}
+                    {% if data.health[0].value_num == 1 %}
+                    <span class="status-badge badge-ok">HEALTHY</span>
+                    {% else %}
+                    <span class="status-badge badge-crit">FAILING</span>
+                    {% endif %}
+                {% endif %}
+            </div>
+            {% if data.info %}
+            <div class="disk-info">
+                {% if data.info.model %}
+                <div class="disk-info-item">
+                    <span class="disk-info-label">Model</span>
+                    <span class="disk-info-value">{{ data.info.model }}</span>
+                </div>
+                {% endif %}
+                {% if data.info.family %}
+                <div class="disk-info-item">
+                    <span class="disk-info-label">Family</span>
+                    <span class="disk-info-value">{{ data.info.family }}</span>
+                </div>
+                {% endif %}
+                {% if data.info.serial %}
+                <div class="disk-info-item">
+                    <span class="disk-info-label">Serial</span>
+                    <span class="disk-info-value">{{ data.info.serial }}</span>
+                </div>
+                {% endif %}
+                {% if data.info.capacity_human %}
+                <div class="disk-info-item">
+                    <span class="disk-info-label">Capacity</span>
+                    <span class="disk-info-value">{{ data.info.capacity_human }}</span>
+                </div>
+                {% endif %}
+                {% if data.info.firmware %}
+                <div class="disk-info-item">
+                    <span class="disk-info-label">Firmware</span>
+                    <span class="disk-info-value">{{ data.info.firmware }}</span>
+                </div>
+                {% endif %}
+                {% if data.info.interface %}
+                <div class="disk-info-item">
+                    <span class="disk-info-label">Interface</span>
+                    <span class="disk-info-value">{{ data.info.interface }}</span>
+                </div>
+                {% endif %}
+                {% if data.info.form_factor %}
+                <div class="disk-info-item">
+                    <span class="disk-info-label">Form Factor</span>
+                    <span class="disk-info-value">{{ data.info.form_factor }}</span>
+                </div>
+                {% endif %}
+                {% if data.info.rotation_rate %}
+                <div class="disk-info-item">
+                    <span class="disk-info-label">Type</span>
+                    <span class="disk-info-value">
+                        {% if data.info.is_ssd %}SSD{% else %}HDD ({{ data.info.rotation_rate }} RPM){% endif %}
+                    </span>
+                </div>
+                {% endif %}
+                {% if data.info.power_on_hours %}
+                <div class="disk-info-item">
+                    <span class="disk-info-label">Power-On</span>
+                    <span class="disk-info-value">{{ data.info.power_on_hours | int }} hours ({{ (data.info.power_on_hours / 24) | int }} days)</span>
+                </div>
+                {% endif %}
+            </div>
             {% endif %}
         </div>
-        {% endif %}
 
         {% if data.attrs %}
         <h4>Key Attributes</h4>
@@ -26,6 +87,7 @@
             {% for attr_id, metrics in data.attrs.items() %}
             {% set attr_info = get_attr_info(attr_id | int) %}
             {% set value = metrics[0].value_num | int %}
+            {% set is_temp = attr_id | int in [190, 194] %}
             {% set is_critical = attr_info.importance == Importance.CRITICAL and value > 0 and attr_info.higher_is_worse %}
             {% set is_warning = attr_info.importance == Importance.HIGH and value > 0 and attr_info.higher_is_worse %}
             <div class="mini-card">
@@ -41,8 +103,8 @@
                         </span>
                     </div>
                 </div>
-                <div class="attr-value {% if is_critical %}value-critical{% elif is_warning %}value-warning{% else %}value-normal{% endif %}">
-                    {{ value }}
+                <div class="attr-value {% if is_critical %}value-critical{% elif is_warning %}value-warning{% elif is_temp and value > 50 %}value-warning{% elif is_temp and value > 60 %}value-critical{% else %}value-normal{% endif %}">
+                    {{ value }}{% if is_temp %}°C{% endif %}
                 </div>
                 <div class="chart-container-small">
                     <canvas id="attr-{{ disk | replace('/', '-') }}-{{ attr_id }}"></canvas>
