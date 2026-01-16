@@ -137,6 +137,45 @@ def create_app(config: Config | None = None) -> FastAPI:
         open_issues = db.get_open_issues()
         recent_events = db.get_events(limit=10)
 
+        # Recalculate effective status considering ACKs
+        if latest_run and latest_run.get("check_results"):
+            smart_acks = db.get_all_smart_acks()
+            effective_status = "OK"
+
+            for check in latest_run["check_results"]:
+                check_status = check["status"]
+
+                # For SMART checks, see if warnings are due to acked errors
+                if check["name"] == "smart" and check_status == "WARN":
+                    identifier = check.get("identifier", "")
+                    details = check.get("details", {})
+                    selftest = details.get("selftest", {})
+                    error_count = selftest.get("error_count", 0)
+                    warnings = details.get("warnings", [])
+                    issues = details.get("issues", [])
+
+                    # Check if this disk's errors are acknowledged
+                    ack = smart_acks.get(identifier)
+                    if ack and ack["error_count_acked"] >= error_count and not issues:
+                        # All errors acknowledged and no other issues
+                        # Check if the only warnings are about error log
+                        non_ack_warnings = [
+                            w for w in warnings
+                            if "error log" not in w.lower() and "error(s)" not in w.lower()
+                        ]
+                        if not non_ack_warnings:
+                            check_status = "OK"
+
+                # Update effective status (worst wins)
+                if check_status == "CRIT":
+                    effective_status = "CRIT"
+                elif check_status == "WARN" and effective_status != "CRIT":
+                    effective_status = "WARN"
+                elif check_status == "UNKNOWN" and effective_status == "OK":
+                    effective_status = "UNKNOWN"
+
+            latest_run["effective_status"] = effective_status
+
         return templates.TemplateResponse(
             "overview.html",
             {
@@ -391,12 +430,32 @@ def create_app(config: Config | None = None) -> FastAPI:
         _auth: None = Depends(require_auth),
     ) -> dict[str, str]:
         """Acknowledge SMART errors for a disk."""
+        cfg: Config = app.state.config
+
         db.save_smart_ack(
             disk=req.disk,
             error_count=req.error_count,
             acked_by="user",
             note=req.note,
         )
+
+        # Send ACK notification to Slack if enabled
+        if cfg.alerts.slack.enabled and cfg.alerts.slack.webhook_url:
+            from homelab_storage_monitor.alerts.slack import send_ack_alert
+
+            dashboard_url = None
+            if cfg.dashboard.base_url:
+                dashboard_url = f"{cfg.dashboard.base_url}/smart"
+
+            send_ack_alert(
+                config=cfg.alerts.slack,
+                hostname=cfg.target.get_hostname(),
+                disk=req.disk,
+                error_count=req.error_count,
+                note=req.note,
+                dashboard_url=dashboard_url,
+            )
+
         return {"status": "ok", "disk": req.disk}
 
     @app.delete("/api/smart/acknowledge/{disk:path}")

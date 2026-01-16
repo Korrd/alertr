@@ -6,11 +6,12 @@
 <h1>System Overview</h1>
 
 {% if latest_run %}
-<section class="status-card status-{{ latest_run.overall_status | lower }}">
+{% set display_status = latest_run.effective_status or latest_run.overall_status %}
+<section class="status-card status-{{ display_status | lower }}">
     <div class="status-header">
         <h2>Current Status:
-            <span class="status-badge badge-{{ latest_run.overall_status | lower }}">
-                {{ latest_run.overall_status }}
+            <span class="status-badge badge-{{ display_status | lower }}">
+                {{ display_status }}
             </span>
         </h2>
         <p class="text-muted">

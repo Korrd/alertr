@@ -69,12 +69,6 @@ class SlackAlerter:
         else:
             header = f"{emoji} *[{status}]* Homelab Storage Monitor - {result.hostname}"
 
-        # Build check summary list
-        check_lines = []
-        for check in result.check_results:
-            check_emoji = self._get_emoji(check.status)
-            check_lines.append(f"{check_emoji} *{check.name}*: {check.summary}")
-
         # Build blocks
         blocks: list[dict[str, Any]] = [
             {
@@ -95,14 +89,51 @@ class SlackAlerter:
             {"type": "divider"},
         ]
 
-        # Add check results
-        for check in result.check_results:
-            check_emoji = self._get_emoji(check.status)
+        # Only show checks with problems (not OK)
+        problem_checks = [c for c in result.check_results if c.status != Status.OK]
+
+        if problem_checks:
+            for check in problem_checks:
+                check_emoji = self._get_emoji(check.status)
+
+                # Build detailed message with impact
+                details = check.details or {}
+                issues = details.get("issues", [])
+                warnings = details.get("warnings", [])
+
+                # Main summary
+                text_parts = [f"{check_emoji} *{check.name}*: {check.summary}"]
+
+                # Add impact description based on check type
+                impact = self._get_impact_description(check.name, check.status, details)
+                if impact:
+                    text_parts.append(f"_{impact}_")
+
+                # Add specific issues/warnings
+                if issues:
+                    text_parts.append("*Issues:*")
+                    for issue in issues[:5]:  # Limit to 5
+                        text_parts.append(f"  • {issue}")
+
+                if warnings:
+                    text_parts.append("*Warnings:*")
+                    for warning in warnings[:5]:  # Limit to 5
+                        text_parts.append(f"  • {warning}")
+
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "\n".join(text_parts),
+                    },
+                })
+        else:
+            # Test alert or all OK (shouldn't normally happen for alerts)
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"{check_emoji} *{check.name}*\n{check.summary}",
+                    "text": "✅ All checks passed" if not is_test else "This is a test alert - no actual issues.",
                 },
             })
 
@@ -126,6 +157,35 @@ class SlackAlerter:
                 }
             ],
         }
+
+    def _get_impact_description(
+        self,
+        check_name: str,
+        status: Status,
+        details: dict[str, Any],
+    ) -> str:
+        """Get human-readable impact description for a check."""
+        impacts = {
+            "smart": {
+                Status.CRIT: "Disk failure imminent - backup data immediately and replace drive",
+                Status.WARN: "Disk showing early signs of wear - monitor closely and plan replacement",
+            },
+            "lvm": {
+                Status.CRIT: "RAID array degraded - data redundancy compromised, replace failed drive ASAP",
+                Status.WARN: "RAID sync in progress or minor issue detected",
+            },
+            "filesystem": {
+                Status.CRIT: "Filesystem critically full - services may fail, free space immediately",
+                Status.WARN: "Filesystem running low on space - plan cleanup or expansion",
+            },
+            "journal": {
+                Status.CRIT: "Critical storage errors in system logs - immediate investigation required",
+                Status.WARN: "Storage warnings detected in logs - review for potential issues",
+            },
+        }
+
+        check_impacts = impacts.get(check_name, {})
+        return check_impacts.get(status, "")
 
     def _get_emoji(self, status: Status) -> str:
         """Get emoji for status."""
@@ -206,4 +266,74 @@ def send_recovery_alert(
         return True
     except requests.RequestException as e:
         logger.error(f"Failed to send Slack recovery alert: {e}")
+        return False
+
+
+def send_ack_alert(
+    config: SlackConfig,
+    hostname: str,
+    disk: str,
+    error_count: int,
+    note: str | None = None,
+    dashboard_url: str | None = None,
+) -> bool:
+    """Send an acknowledgment notification to Slack."""
+    if not config.webhook_url:
+        return False
+
+    note_text = f"\n*Note:* {note}" if note else ""
+
+    payload = {
+        "text": f"✅ *ACKNOWLEDGED* - SMART errors on {disk}",
+        "attachments": [
+            {
+                "color": "#36a64f",
+                "blocks": [
+                    {
+                        "type": "header",
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"✅ ACKNOWLEDGED - {hostname}",
+                            "emoji": True,
+                        },
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*Timestamp:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                        },
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": (
+                                f"*Disk:* `{disk}`\n"
+                                f"*Errors Acknowledged:* {error_count}\n"
+                                f"*Status:* Marked as known issue - alerts suppressed{note_text}"
+                            ),
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+
+    if dashboard_url:
+        payload["attachments"][0]["blocks"].append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"<{dashboard_url}|View Dashboard>",
+            },
+        })
+
+    try:
+        response = requests.post(config.webhook_url, json=payload, timeout=30)
+        response.raise_for_status()
+        logger.info(f"Slack ACK alert sent for {disk}")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Failed to send Slack ACK alert: {e}")
         return False
