@@ -213,3 +213,6 @@ config/config.yaml
 # Data directory (SQLite database and runtime files)
 data/*
 !data/.gitkeep
+
+# user-generated docker-compose
+docker-compose.yml
