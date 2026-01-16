@@ -7,7 +7,7 @@ name = "homelab-storage-monitor"
 version = "1.0.0"
 description = "Monitoring and alerting for homelab disk arrays"
 readme = "README.md"
-license = "Apache-2.0"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 authors = [
     { name = "Homelab Storage Monitor Contributors" }
@@ -18,7 +18,8 @@ classifiers = [
     "Environment :: Console",
     "Environment :: Web Environment",
     "Intended Audience :: System Administrators",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: Free for non-commercial use",
+    "License :: Other/Proprietary License",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",

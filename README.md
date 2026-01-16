@@ -336,4 +336,6 @@ hsm serve -c config.yaml --bind 127.0.0.1:8088
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) for details
+Business Source License 1.1 with a change date of 2029-01-16, after which the project reverts
+to Apache 2.0. Non-production/non-commercial use is permitted today; commercial users need a
+license from the authors. Full terms live in [LICENSE](LICENSE).
