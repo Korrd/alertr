@@ -17,7 +17,7 @@ RUN useradd --create-home --shell /bin/bash hsm
 WORKDIR /app
 
 # Copy project files
-COPY pyproject.toml ./
+COPY pyproject.toml LICENSE README.md ./
 COPY homelab_storage_monitor/ ./homelab_storage_monitor/
 
 # Install Python package
