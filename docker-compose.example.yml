@@ -87,7 +87,8 @@ services:
     container_name: hsm_dashboard
     command: ["serve", "--config", "/config/config.yaml", "--bind", "0.0.0.0:8088"]
 
-    # No privileged access needed - read-only DB access
+    # Note: Needs write access to database for acknowledgments
+    # If you see "readonly database" errors, run: sudo chown -R 1000:1000 ./data
     user: "1000:1000"  # Match hsm user in container, or your host UID
 
     volumes:

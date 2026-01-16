@@ -388,10 +388,16 @@ class SmartCheck(BaseCheck):
             Metric(name="disk_selftest", value_text=json.dumps(selftest_results), labels=labels)
         )
 
-        # Check for self-test failures
+        # Check if errors are acknowledged
+        ack = self.db.get_smart_ack(disk)
+        error_count_acked = ack["error_count_acked"] if ack else 0
+
+        # Check for self-test failures (skip if acknowledged)
         if selftest_results["has_errors"]:
-            if selftest_results["error_count"] > 0:
-                warnings.append(f"Error log has {selftest_results['error_count']} entries")
+            if selftest_results["error_count"] > 0 and selftest_results["error_count"] > error_count_acked:
+                # Only warn about new errors beyond what was acknowledged
+                new_errors = selftest_results["error_count"] - error_count_acked
+                warnings.append(f"Error log has {new_errors} new error(s) (total: {selftest_results['error_count']})")
             for test in selftest_results["tests"]:
                 if not test["passed"]:
                     issues.append(f"Self-test failed: {test['type']} - {test['status']}")
