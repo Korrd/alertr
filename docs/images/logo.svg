@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Black background -->
+  <rect width="1024" height="1024" fill="#0a0a0a"/>
+
+  <!-- Brushstroke letter "A" - matching transcribr style -->
+  <!-- Main stroke paths designed to look like calligraphic brush strokes -->
+
+  <!-- Left diagonal stroke of A -->
+  <path d="M280 820
+           Q290 750, 350 600
+           Q420 420, 480 280
+           Q500 230, 512 180
+           Q520 160, 530 165
+           Q540 175, 535 200
+           Q520 280, 490 380
+           Q450 500, 400 650
+           Q360 760, 340 820
+           Q330 850, 310 845
+           Q290 840, 280 820Z"
+        fill="#F5F0E8"/>
+
+  <!-- Right diagonal stroke of A -->
+  <path d="M530 180
+           Q545 170, 560 190
+           Q580 230, 620 340
+           Q680 500, 730 650
+           Q760 740, 780 800
+           Q790 830, 775 840
+           Q755 850, 740 820
+           Q710 740, 660 600
+           Q600 430, 555 290
+           Q535 230, 530 195Z"
+        fill="#F5F0E8"/>
+
+  <!-- Crossbar of A with brush effect -->
+  <path d="M320 580
+           Q340 560, 400 555
+           Q480 548, 560 555
+           Q640 560, 700 575
+           Q730 585, 725 600
+           Q720 620, 690 615
+           Q620 600, 540 595
+           Q460 590, 390 598
+           Q340 605, 325 610
+           Q305 615, 310 595
+           Q315 580, 320 580Z"
+        fill="#F5F0E8"/>
+
+  <!-- Brush texture/feathering on strokes -->
+  <path d="M275 830 Q265 850, 280 860 Q295 855, 290 835Z" fill="#F5F0E8" opacity="0.7"/>
+  <path d="M785 810 Q800 830, 795 850 Q780 855, 775 830Z" fill="#F5F0E8" opacity="0.6"/>
+
+  <!-- Paint splatter effects at bottom -->
+  <circle cx="350" cy="880" r="4" fill="#F5F0E8" opacity="0.8"/>
+  <circle cx="380" cy="895" r="2.5" fill="#F5F0E8" opacity="0.6"/>
+  <circle cx="320" cy="870" r="3" fill="#F5F0E8" opacity="0.5"/>
+  <circle cx="400" cy="875" r="2" fill="#F5F0E8" opacity="0.7"/>
+  <circle cx="365" cy="905" r="1.5" fill="#F5F0E8" opacity="0.4"/>
+  <circle cx="335" cy="890" r="2" fill="#F5F0E8" opacity="0.6"/>
+
+  <!-- Additional splatter -->
+  <circle cx="720" cy="860" r="3" fill="#F5F0E8" opacity="0.5"/>
+  <circle cx="750" cy="875" r="2" fill="#F5F0E8" opacity="0.4"/>
+  <circle cx="700" cy="880" r="1.5" fill="#F5F0E8" opacity="0.6"/>
+
+  <!-- Subtle brush drip effect -->
+  <path d="M345 825 Q350 860, 355 880 Q358 890, 352 892 Q346 890, 348 875 Q345 850, 340 830Z"
+        fill="#F5F0E8" opacity="0.4"/>
+</svg>

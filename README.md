@@ -1,24 +1,71 @@
-# Homelab Storage Monitor
+<p align="center">
+  <img src="docs/images/logo.svg" alt="Homelab Storage Monitor" width="120">
+</p>
 
-[![CI/CD](https://github.com/Korrd/alertr/actions/workflows/ci.yml/badge.svg)](https://github.com/Korrd/alertr/actions/workflows/ci.yml)
+<h1 align="center">Homelab Storage Monitor</h1>
 
-Monitoring and alerting for homelab disk arrays. Detects disk failure risks, RAID degradation, filesystem issues, and sends alerts via Slack and email.
+<p align="center">
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-features">Features</a> •
+  <a href="#%EF%B8%8F-configuration">Configuration</a> •
+  <a href="#-api-reference">API</a> •
+  <a href="#-troubleshooting">Troubleshooting</a>
+</p>
 
-## Features
+<p align="center">
+  <a href="https://github.com/Korrd/alertr/actions/workflows/ci.yml"><img src="https://github.com/Korrd/alertr/actions/workflows/ci.yml/badge.svg" alt="CI/CD"></a>
+  <a href="https://github.com/Korrd/alertr/releases"><img src="https://img.shields.io/github/v/release/Korrd/alertr?include_prereleases&label=version" alt="Version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSL--1.1-blue" alt="License"></a>
+  <a href="https://github.com/Korrd/alertr/pkgs/container/alertr"><img src="https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker" alt="Docker"></a>
+</p>
 
-- **LVM RAID1 Monitoring**: Detect mirror degradation, sync issues, and stalled rebuilds
-- **SMART Health Checks**: Monitor disk health attributes with delta detection for both ATA and NVMe drives
-- **Self-Test Results**: Display SMART self-test history and detailed error logs
-- **Error Acknowledgment**: Suppress known issues from alerts with notes and Slack notifications
-- **Filesystem Capacity**: Track usage with configurable warning thresholds
-- **Kernel Log Scanning**: Detect I/O errors, ext4 errors, and SATA issues
-- **Smart Alerting**: Deduplicated alerts via Slack and email with cooldown periods and impact descriptions
-- **Web Dashboard**: Real-time status, historical charts, and event timeline with dark/light/auto theme
-- **Simple Backup**: Single SQLite database file
+<p align="center">
+  Proactive storage monitoring for your homelab.<br>
+  Detects disk failures, RAID degradation, and filesystem issues<br>
+  before they become catastrophic data loss.
+</p>
 
-## Quick Start
+<p align="center">
+  <img src="docs/images/dashboard-preview.png" alt="Dashboard Preview" width="800">
+</p>
 
-### 1. Clone and Configure
+<br>
+
+## ✨ Features
+
+### 🔍 Comprehensive Health Checks
+- **LVM RAID1 Monitoring** – Detect mirror degradation, sync issues, and stalled rebuilds
+- **SMART Health Checks** – Monitor disk health attributes with delta detection for ATA and NVMe drives
+- **Self-Test Results** – Display SMART self-test history and detailed error logs
+- **Filesystem Capacity** – Track usage with configurable warning/critical thresholds
+- **Kernel Log Scanning** – Detect I/O errors, ext4 errors, and SATA issues
+
+### 🚨 Smart Alerting
+- **Deduplicated Alerts** – No alert fatigue with configurable cooldown periods
+- **Multi-Channel** – Slack and email notifications with impact descriptions
+- **Recovery Notifications** – Know when issues resolve themselves
+- **Error Acknowledgment** – Suppress known issues with notes and audit trail
+
+### 📊 Web Dashboard
+- **Real-time Status** – At-a-glance system health overview
+- **Historical Charts** – Track trends over time
+- **Event Timeline** – Complete audit trail of all events
+- **Dark/Light/Auto Theme** – Easy on the eyes, any time of day
+- **Mobile Responsive** – Check on your storage from anywhere
+
+### 🏠 Homelab Friendly
+- **Simple Backup** – Single SQLite database file
+- **Low Resource Usage** – Designed for always-on home servers
+- **Docker Ready** – Two-container architecture for security
+- **Easy Configuration** – Single YAML config file
+
+<br>
+
+## 🚀 Quick Start
+
+<details>
+<summary><strong>1. Clone and Configure</strong></summary>
+<br>
 
 ```bash
 git clone https://github.com/Korrd/alertr.git
@@ -35,7 +82,11 @@ sudo chown -R 1000:1000 ./data
 nano config/config.yaml
 ```
 
-### 2. Configure Monitored Filesystems
+</details>
+
+<details>
+<summary><strong>2. Configure Monitored Filesystems</strong></summary>
+<br>
 
 Edit `docker-compose.yml` to add bind mounts for filesystems you want to monitor:
 
@@ -58,7 +109,11 @@ filesystem:
       crit_pct: 95
 ```
 
-### 3. Configure Disks for SMART Monitoring
+</details>
+
+<details>
+<summary><strong>3. Configure Disks for SMART Monitoring</strong></summary>
+<br>
 
 ```yaml
 smart:
@@ -68,7 +123,11 @@ smart:
     - /dev/nvme0
 ```
 
-### 4. Start Services
+</details>
+
+<details>
+<summary><strong>4. Start Services</strong></summary>
+<br>
 
 ```bash
 # Copy the example compose file
@@ -78,26 +137,31 @@ cp docker-compose.example.yml docker-compose.yml
 docker-compose up -d
 ```
 
-### 5. Access Dashboard
+</details>
+
+<details>
+<summary><strong>5. Access Dashboard</strong></summary>
+<br>
 
 Open http://your-server:8088 in your browser.
 
-## Architecture
+</details>
+
+<br>
+
+## 🏗️ Architecture
 
 Two-container model for security:
-
-1. **Collector** (privileged): Runs health checks, needs host device access
-2. **Dashboard** (unprivileged): Web UI with database access (needs write for acknowledgments)
 
 ```
 ┌─────────────────┐     ┌─────────────────┐
 │    Collector    │     │    Dashboard    │
 │   (privileged)  │     │  (unprivileged) │
 │                 │     │                 │
-│  - LVM checks   │     │  - FastAPI      │
-│  - SMART checks │     │  - Charts       │
-│  - Log scanning │     │  - API          │
-│  - Alerting     │     │  - ACK system   │
+│  • LVM checks   │     │  • FastAPI      │
+│  • SMART checks │     │  • Charts       │
+│  • Log scanning │     │  • API          │
+│  • Alerting     │     │  • ACK system   │
 └────────┬────────┘     └────────┬────────┘
          │                       │
          │    ┌──────────────┐   │
@@ -106,7 +170,9 @@ Two-container model for security:
               └──────────────┘
 ```
 
-## Host Mounts Explained
+<details>
+<summary><strong>Host Mounts Explained</strong></summary>
+<br>
 
 The collector container requires several host mounts:
 
@@ -119,11 +185,17 @@ The collector container requires several host mounts:
 | `/etc/machine-id` | Required for journald access |
 | `/hostfs/*` | Bind-mounted filesystems to monitor |
 
-## Configuration Reference
+</details>
 
-See [config/config.example.yaml](config/config.example.yaml) for full documentation.
+<br>
 
-### Key Settings
+## ⚙️ Configuration
+
+Configuration is done through a single YAML file. See [config/config.example.yaml](config/config.example.yaml) for full documentation.
+
+<details>
+<summary><strong>Preview key settings</strong></summary>
+<br>
 
 ```yaml
 # Check interval
@@ -141,7 +213,15 @@ history:
   retention_days_events: 180
 ```
 
-## CLI Commands
+</details>
+
+<br>
+
+## 💻 CLI Commands
+
+<details>
+<summary><strong>View all commands</strong></summary>
+<br>
 
 ```bash
 # Run checks once
@@ -166,7 +246,15 @@ hsm migrate-db --config /path/to/config.yaml
 hsm retention --config /path/to/config.yaml --vacuum
 ```
 
-## API Endpoints
+</details>
+
+<br>
+
+## 🔌 API Reference
+
+<details>
+<summary><strong>Dashboard Pages</strong></summary>
+<br>
 
 | Endpoint | Description |
 |----------|-------------|
@@ -175,6 +263,15 @@ hsm retention --config /path/to/config.yaml --vacuum
 | `GET /lvm` | LVM RAID status page |
 | `GET /smart` | SMART disk health page |
 | `GET /events` | Event timeline |
+
+</details>
+
+<details>
+<summary><strong>REST API Endpoints</strong></summary>
+<br>
+
+| Endpoint | Description |
+|----------|-------------|
 | `GET /api/status/current` | Current status JSON |
 | `GET /api/runs?limit=50` | Recent check runs |
 | `GET /api/metrics?name=...` | Query metrics |
@@ -185,24 +282,32 @@ hsm retention --config /path/to/config.yaml --vacuum
 | `DELETE /api/smart/acknowledge/{disk}` | Remove acknowledgment for a disk |
 | `GET /health` | Health check (no auth) |
 
-## Error Acknowledgment
+</details>
+
+<br>
+
+## 🔕 Error Acknowledgment
 
 When a disk has SMART warnings that you've investigated and want to suppress from alerts:
 
 1. Navigate to the **SMART** page in the dashboard
 2. Click the **Acknowledge** button on the disk card
-3. Enter a note explaining why the error is acknowledged (e.g., "Replaced disk scheduled for next week")
+3. Enter a note explaining why (e.g., *"Replacement scheduled for next week"*)
 4. Click **Acknowledge**
 
-Acknowledged disks:
+**Acknowledged disks:**
 - Show a muted status (grey) on the overview page
 - Are excluded from Slack/email alerts
-- Still display their raw data on the SMART page
-- Trigger a Slack notification when acknowledged (if Slack is configured)
+- Still display raw data on the SMART page
+- Trigger a Slack notification when acknowledged
 
-## Authentication
+<br>
 
-For security, enable authentication when exposing the dashboard:
+## 🔐 Authentication
+
+<details>
+<summary><strong>Password Authentication</strong></summary>
+<br>
 
 ```yaml
 dashboard:
@@ -211,7 +316,11 @@ dashboard:
   auth_password: your-secure-password
 ```
 
-Or use a bearer token:
+</details>
+
+<details>
+<summary><strong>Bearer Token Authentication</strong></summary>
+<br>
 
 ```yaml
 dashboard:
@@ -221,11 +330,17 @@ dashboard:
 
 Use the token as the password with any username.
 
-## Backup and Restore
+</details>
 
-### Backup
+<br>
 
-The entire state is in a single SQLite file:
+## 💾 Backup and Restore
+
+The entire state lives in a single SQLite file—easy to backup, easy to restore.
+
+<details>
+<summary><strong>Backup</strong></summary>
+<br>
 
 ```bash
 # Stop collector to ensure consistency
@@ -238,7 +353,11 @@ cp data/hsm.sqlite /backup/hsm-$(date +%Y%m%d).sqlite
 docker-compose start hsm_collector
 ```
 
-### Restore
+</details>
+
+<details>
+<summary><strong>Restore</strong></summary>
+<br>
 
 ```bash
 docker-compose stop hsm_collector hsm_dashboard
@@ -246,14 +365,22 @@ cp /backup/hsm-20240115.sqlite data/hsm.sqlite
 docker-compose up -d
 ```
 
-## Adding New Disks or Mountpoints
+</details>
 
-1. Stop the collector:
+<br>
+
+## ➕ Adding New Disks or Mountpoints
+
+<details>
+<summary><strong>Step-by-step guide</strong></summary>
+<br>
+
+1. **Stop the collector:**
    ```bash
    docker-compose stop hsm_collector
    ```
 
-2. Edit `config/config.yaml`:
+2. **Edit `config/config.yaml`:**
    ```yaml
    smart:
      disks:
@@ -267,20 +394,26 @@ docker-compose up -d
        - path: /hostfs/mnt/newdrive  # New mount
    ```
 
-3. If adding a new mountpoint, update `docker-compose.yml`:
+3. **If adding a new mountpoint, update `docker-compose.yml`:**
    ```yaml
    volumes:
      - /mnt/newdrive:/hostfs/mnt/newdrive:ro
    ```
 
-4. Restart:
+4. **Restart:**
    ```bash
    docker-compose up -d
    ```
 
-## Troubleshooting
+</details>
 
-### Journald Access Issues
+<br>
+
+## 🔧 Troubleshooting
+
+<details>
+<summary><strong>Journald Access Issues</strong></summary>
+<br>
 
 If journald logs aren't accessible in the container:
 
@@ -303,7 +436,11 @@ If journald logs aren't accessible in the container:
      - /var/log:/var/log:ro
    ```
 
-### LVM Not Detected
+</details>
+
+<details>
+<summary><strong>LVM Not Detected</strong></summary>
+<br>
 
 Ensure LVM runtime is mounted:
 
@@ -313,11 +450,19 @@ volumes:
   - /etc/lvm:/etc/lvm:ro
 ```
 
-### SMART Access Denied
+</details>
+
+<details>
+<summary><strong>SMART Access Denied</strong></summary>
+<br>
 
 The collector must run with `privileged: true` for SMART access.
 
-### Dashboard Shows No Data
+</details>
+
+<details>
+<summary><strong>Dashboard Shows No Data</strong></summary>
+<br>
 
 1. Check collector logs:
    ```bash
@@ -334,7 +479,11 @@ The collector must run with `privileged: true` for SMART access.
    sudo chown -R 1000:1000 ./data
    ```
 
-### Readonly Database Errors
+</details>
+
+<details>
+<summary><strong>Readonly Database Errors</strong></summary>
+<br>
 
 The dashboard needs write access for the acknowledgment system. Fix permissions:
 
@@ -342,9 +491,15 @@ The dashboard needs write access for the acknowledgment system. Fix permissions:
 sudo chown -R 1000:1000 ./data
 ```
 
-## Development
+</details>
 
-### Local Setup
+<br>
+
+## 🛠️ Development
+
+<details>
+<summary><strong>Local Setup</strong></summary>
+<br>
 
 ```bash
 # Create virtual environment
@@ -361,7 +516,11 @@ pytest -v
 ruff check .
 ```
 
-### Building Docker Image Locally
+</details>
+
+<details>
+<summary><strong>Building Docker Image Locally</strong></summary>
+<br>
 
 ```bash
 # Build the image
@@ -371,7 +530,11 @@ docker build -t homelab-storage-monitor:local .
 # image: homelab-storage-monitor:local
 ```
 
-### Running Locally
+</details>
+
+<details>
+<summary><strong>Running Locally</strong></summary>
+<br>
 
 ```bash
 # Create test config
@@ -387,19 +550,29 @@ hsm serve -c config.yaml --bind 127.0.0.1:8088
 hsm test-alerts -c config.yaml --slack --email
 ```
 
-## CI/CD
+</details>
+
+<br>
+
+## 🔄 CI/CD
 
 This project uses GitHub Actions for continuous integration:
 
-- **Tests**: Run on every push and pull request
-- **Linting**: Ruff checks on every push
-- **Docker Build**: Multi-platform images (amd64, arm64) built and pushed to GHCR
-- **Tags**: Semantic versioning supported (v1.0.0, v1.0, latest)
+| Workflow | Trigger | Description |
+|----------|---------|-------------|
+| **Tests** | Push, PR | Runs pytest on all changes |
+| **Linting** | Push | Ruff checks for code quality |
+| **Docker Build** | Tags, main | Multi-platform images (amd64, arm64) |
 
-Images are available at `ghcr.io/vic/alertr:latest`.
+Images are available at `ghcr.io/korrd/alertr:latest`.
 
-## License
+<br>
 
-Business Source License 1.1 with a change date of 2029-01-16, after which the project reverts
-to Apache 2.0. Non-production/non-commercial use is permitted today; commercial users need a
-license from the authors. Full terms live in [LICENSE](LICENSE).
+## 📄 License
+
+Business Source License 1.1 with a change date of 2029-01-16, after which the project reverts to Apache 2.0.
+
+- ✅ **Allowed**: Non-production and non-commercial use
+- 📧 **Commercial use**: Contact the authors for licensing
+
+Full terms in [LICENSE](LICENSE).
