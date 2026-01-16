@@ -1,0 +1,106 @@
+# Homelab Storage Monitor - Example Configuration
+#
+# Copy this file to config/config.yaml and customize for your setup.
+# All settings have sensible defaults; only configure what you need.
+
+# Target host identification
+target:
+  # Optional label for this host (uses actual hostname if empty)
+  hostname_label: ""
+
+# LVM RAID1 monitoring
+lvm:
+  enabled: true
+  vg: "RAID"           # Volume group name
+  lv: "RAID"           # Logical volume name
+  sync_stall_runs: 6   # CRIT if sync % unchanged for this many runs
+
+# SMART disk monitoring
+smart:
+  enabled: true
+  # List of disks to monitor
+  disks:
+    - /dev/sda
+    - /dev/sdb
+  # Thresholds for SMART attributes
+  thresholds:
+    realloc_warn: 10       # Attr 5: Reallocated Sector Count
+    crc_warn_delta: 1      # Attr 199: CRC errors (increase triggers WARN)
+    pending_crit: 0        # Attr 197: Current Pending Sector
+    offline_uncorr_crit: 0 # Attr 198: Offline Uncorrectable
+    reported_uncorr_crit: 0 # Attr 187: Reported Uncorrectable
+
+# Kernel/journal log scanning
+journal:
+  enabled: true
+  use_journald: true   # Use journalctl (preferred)
+  # Fallback log files if journald not available
+  fallback_log_paths:
+    - /var/log/kern.log
+    - /var/log/syslog
+
+# Filesystem capacity monitoring
+filesystem:
+  enabled: true
+  mountpoints:
+    # Simple format (uses default thresholds)
+    # - /hostfs/media/DATOS
+
+    # Detailed format with custom thresholds
+    - path: /hostfs/media/DATOS
+      warn_pct: 85    # WARN when usage >= 85%
+      crit_pct: 95    # CRIT when usage >= 95%
+
+    # Add more mountpoints as needed
+    # Note: In Docker, use /hostfs/ prefix for bind-mounted host paths
+
+# Database and history settings
+history:
+  db_path: /var/lib/hsm/hsm.sqlite
+  retention_days_metrics: 90   # Keep metrics for 90 days
+  retention_days_events: 180   # Keep events for 180 days
+
+# Alerting configuration
+alerts:
+  # Cooldown between repeated alerts for same issue (seconds)
+  dedupe_cooldown_seconds: 21600  # 6 hours
+
+  # Send alert when issues recover
+  send_recovery: true
+
+  # Slack incoming webhook
+  slack:
+    enabled: false
+    webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+  # Email via SMTP
+  email:
+    enabled: false
+    smtp_host: "smtp.example.com"
+    smtp_port: 587
+    username: "alerts@example.com"
+    password: "your-app-password"
+    from_addr: "alerts@example.com"
+    to_addrs:
+      - "admin@example.com"
+    use_starttls: true   # Use STARTTLS (port 587)
+    use_ssl: false       # Use direct SSL (port 465)
+
+# Scheduler settings (for collector loop mode)
+scheduler:
+  interval_seconds: 900  # Run checks every 15 minutes
+
+# Dashboard settings
+dashboard:
+  # Base URL for links in alerts (include port if non-standard)
+  base_url: "http://your-server:8088"
+
+  # Bind address for the web server
+  bind_host: "0.0.0.0"
+  bind_port: 8088
+
+  # Authentication (recommended if exposed beyond localhost)
+  auth_enabled: false
+  auth_username: "admin"
+  auth_password: ""      # Set a password to enable basic auth
+  auth_token: ""         # Alternative: bearer token (use as password with any username)

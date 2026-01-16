@@ -1,0 +1,125 @@
+# Homelab Storage Monitor - Docker Compose Configuration
+#
+# This runs two services from the same image:
+# - hsm_collector: Privileged container that runs health checks
+# - hsm_dashboard: Unprivileged container serving the web UI
+#
+# Usage:
+#   docker-compose up -d
+#
+# Customize:
+#   1. Edit config/config.yaml with your settings
+#   2. Adjust volume mounts below for your monitored filesystems
+#   3. Set timezone via TZ environment variable
+
+services:
+  # Collector service - runs health checks on a schedule
+  # Requires privileged access for LVM, SMART, and journald
+  hsm_collector:
+    build: .
+    image: homelab-storage-monitor:latest
+    container_name: hsm_collector
+    command: ["run", "--config", "/config/config.yaml", "--loop"]
+
+    # Required for LVM and SMART access
+    privileged: true
+
+    volumes:
+      # Configuration (required)
+      - ./config:/config:ro
+
+      # Database storage (required)
+      - ./data:/var/lib/hsm
+
+      # Device access for SMART checks (required)
+      - /dev:/dev
+
+      # LVM metadata (required for LVM checks)
+      - /run/lvm:/run/lvm:rw
+      - /etc/lvm:/etc/lvm:ro
+
+      # udev for device information (recommended)
+      - /run/udev:/run/udev:ro
+
+      # Journald access for log scanning (recommended)
+      # Comment out if using fallback log file scanning
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+
+      # ============================================================
+      # MONITORED FILESYSTEMS
+      # ============================================================
+      # Bind-mount each filesystem you want to monitor.
+      # The container path should match your config.yaml mountpoints.
+      #
+      # Example: Monitor /media/DATOS
+      #   - /media/DATOS:/hostfs/media/DATOS:ro
+      #
+      # Then in config.yaml, set:
+      #   filesystem:
+      #     mountpoints:
+      #       - path: /hostfs/media/DATOS
+      #
+      # Add your monitored filesystems below:
+      # - /media/DATOS:/hostfs/media/DATOS:ro
+      # - /mnt/storage:/hostfs/mnt/storage:ro
+
+    environment:
+      - TZ=Europe/Madrid
+
+    restart: unless-stopped
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Dashboard service - serves the web UI (unprivileged)
+  hsm_dashboard:
+    build: .
+    image: homelab-storage-monitor:latest
+    container_name: hsm_dashboard
+    command: ["serve", "--config", "/config/config.yaml", "--bind", "0.0.0.0:8088"]
+
+    # No privileged access needed - read-only DB access
+    user: "1000:1000"  # Match hsm user in container, or your host UID
+
+    volumes:
+      # Configuration (required)
+      - ./config:/config:ro
+
+      # Database - READ ONLY (required)
+      - ./data:/var/lib/hsm:ro
+
+    ports:
+      - "8088:8088"
+
+    environment:
+      - TZ=Europe/Madrid
+
+    restart: unless-stopped
+
+    # Wait for collector to create database
+    depends_on:
+      - hsm_collector
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Optional: Define a network for inter-service communication
+networks:
+  default:
+    name: hsm_network

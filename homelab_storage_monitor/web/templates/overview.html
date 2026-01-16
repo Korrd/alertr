@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}Overview{% endblock %}
+
+{% block content %}
+<h1>System Overview</h1>
+
+{% if latest_run %}
+<section class="status-card status-{{ latest_run.overall_status | lower }}">
+    <div class="status-header">
+        <h2>Current Status:
+            <span class="status-badge badge-{{ latest_run.overall_status | lower }}">
+                {{ latest_run.overall_status }}
+            </span>
+        </h2>
+        <p class="text-muted">
+            Host: {{ latest_run.hostname }} |
+            Last check: {{ latest_run.ts_end }}
+        </p>
+    </div>
+</section>
+
+<section class="card">
+    <h3>Check Results</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Status</th>
+                <th>Check</th>
+                <th>Summary</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for check in latest_run.check_results %}
+            <tr>
+                <td>
+                    <span class="status-badge badge-{{ check.status | lower }}">
+                        {{ check.status }}
+                    </span>
+                </td>
+                <td>{{ check.name }}{% if check.identifier %} ({{ check.identifier }}){% endif %}</td>
+                <td>{{ check.summary }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% else %}
+<section class="card">
+    <p class="text-muted">No check runs recorded yet. Start the collector to begin monitoring.</p>
+</section>
+{% endif %}
+
+{% if open_issues %}
+<section class="card">
+    <h3>Open Issues ({{ open_issues | length }})</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Status</th>
+                <th>Issue</th>
+                <th>Since</th>
+                <th>Alert Count</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for issue in open_issues %}
+            <tr>
+                <td>
+                    <span class="status-badge badge-{{ issue.status | lower }}">
+                        {{ issue.status }}
+                    </span>
+                </td>
+                <td>{{ issue.key }}</td>
+                <td>{{ issue.last_change_ts }}</td>
+                <td>{{ issue.alert_count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endif %}
+
+<section class="card">
+    <h3>Recent Events</h3>
+    {% if recent_events %}
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Type</th>
+                <th>Severity</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for event in recent_events %}
+            <tr>
+                <td>{{ event.ts }}</td>
+                <td>{{ event.event_type }}</td>
+                <td>
+                    <span class="status-badge badge-{{ event.severity | lower }}">
+                        {{ event.severity }}
+                    </span>
+                </td>
+                <td>{{ event.message }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p><a href="/events">View all events →</a></p>
+    {% else %}
+    <p class="text-muted">No events recorded yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

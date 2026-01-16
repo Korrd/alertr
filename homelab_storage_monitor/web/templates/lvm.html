@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}LVM RAID{% endblock %}
+
+{% block content %}
+<h1>LVM RAID Status</h1>
+
+<section class="card">
+    <h3>Sync Percentage</h3>
+    {% if sync_metrics %}
+    <div class="metric-current">
+        <span class="metric-value">{{ "%.1f" | format(sync_metrics[0].value_num) }}%</span>
+        <span class="metric-label">Current Sync</span>
+    </div>
+    <div class="chart-container">
+        <canvas id="sync-chart"></canvas>
+    </div>
+    {% else %}
+    <p class="text-muted">No LVM sync metrics recorded yet.</p>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h3>Degraded State History</h3>
+    {% if degraded_metrics %}
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>VG/LV</th>
+                <th>State</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in degraded_metrics[:20] %}
+            <tr>
+                <td>{{ m.ts }}</td>
+                <td>{{ m.labels.get('vg', '?') }}/{{ m.labels.get('lv', '?') }}</td>
+                <td>
+                    {% if m.value_num == 0 %}
+                    <span class="status-badge badge-ok">Healthy</span>
+                    {% else %}
+                    <span class="status-badge badge-crit">Degraded</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">No degraded state history available.</p>
+    {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const ctx = document.getElementById('sync-chart');
+    if (!ctx) return;
+
+    const data = {{ sync_metrics | tojson }};
+    const labels = data.map(m => m.ts).reverse();
+    const values = data.map(m => m.value_num).reverse();
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Sync %',
+                data: values,
+                borderColor: '#28a745',
+                backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                fill: true,
+                tension: 0.1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    min: 0,
+                    max: 100,
+                    title: { display: true, text: 'Sync %' }
+                },
+                x: {
+                    display: false
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+})();
+</script>
+{% endblock %}

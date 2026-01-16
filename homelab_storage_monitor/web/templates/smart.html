@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}SMART{% endblock %}
+
+{% block content %}
+<h1>SMART Disk Health</h1>
+
+{% if disks %}
+    {% for disk, data in disks.items() %}
+    <section class="card">
+        <h3>{{ disk }}</h3>
+
+        {% if data.health %}
+        <div class="metric-current">
+            {% if data.health[0].value_num == 1 %}
+            <span class="status-badge badge-ok" style="font-size: 1.5rem;">HEALTHY</span>
+            {% else %}
+            <span class="status-badge badge-crit" style="font-size: 1.5rem;">FAILING</span>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if data.attrs %}
+        <h4>Key Attributes</h4>
+        <div class="grid">
+            {% for attr_id, metrics in data.attrs.items() %}
+            <div class="mini-card">
+                <div class="attr-id">Attr {{ attr_id }}</div>
+                <div class="attr-value">{{ metrics[0].value_num | int }}</div>
+                <div class="chart-container-small">
+                    <canvas id="attr-{{ disk | replace('/', '-') }}-{{ attr_id }}"></canvas>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </section>
+    {% endfor %}
+{% else %}
+<section class="card">
+    <p class="text-muted">No SMART metrics recorded yet.</p>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+{% for disk, data in disks.items() %}
+    {% for attr_id, metrics in data.attrs.items() %}
+    (function() {
+        const ctx = document.getElementById('attr-{{ disk | replace("/", "-") }}-{{ attr_id }}');
+        if (!ctx) return;
+
+        const data = {{ metrics | tojson }};
+        const values = data.map(m => m.value_num).reverse().slice(-50);
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: values.map((_, i) => i),
+                datasets: [{
+                    data: values,
+                    borderColor: '#6c757d',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { display: false },
+                    x: { display: false }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+    })();
+    {% endfor %}
+{% endfor %}
+</script>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Filesystem{% endblock %}
+
+{% block content %}
+<h1>Filesystem Usage</h1>
+
+{% if mounts %}
+    {% for mount, metrics in mounts.items() %}
+    <section class="card">
+        <h3>{{ mount }}</h3>
+        {% if metrics %}
+        <div class="metric-current">
+            <span class="metric-value">{{ "%.1f" | format(metrics[0].value_num) }}%</span>
+            <span class="metric-label">Current Usage</span>
+        </div>
+        <div class="chart-container">
+            <canvas id="chart-{{ loop.index }}"></canvas>
+        </div>
+        {% endif %}
+    </section>
+    {% endfor %}
+{% else %}
+<section class="card">
+    <p class="text-muted">No filesystem metrics recorded yet.</p>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+{% for mount, metrics in mounts.items() %}
+(function() {
+    const ctx = document.getElementById('chart-{{ loop.index }}');
+    if (!ctx) return;
+
+    const data = {{ metrics | tojson }};
+    const labels = data.map(m => m.ts).reverse();
+    const values = data.map(m => m.value_num).reverse();
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Usage %',
+                data: values,
+                borderColor: '#007bff',
+                backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                fill: true,
+                tension: 0.1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    min: 0,
+                    max: 100,
+                    title: { display: true, text: 'Usage %' }
+                },
+                x: {
+                    display: false
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+})();
+{% endfor %}
+</script>
+{% endblock %}

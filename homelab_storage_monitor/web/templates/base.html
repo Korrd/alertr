@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}HSM{% endblock %} - Homelab Storage Monitor</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <a href="/">📊 Homelab Storage Monitor</a>
+        </div>
+        <ul class="nav-links">
+            <li><a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Overview</a></li>
+            <li><a href="/filesystem" class="{% if request.url.path == '/filesystem' %}active{% endif %}">Filesystem</a></li>
+            <li><a href="/lvm" class="{% if request.url.path == '/lvm' %}active{% endif %}">LVM RAID</a></li>
+            <li><a href="/smart" class="{% if request.url.path == '/smart' %}active{% endif %}">SMART</a></li>
+            <li><a href="/events" class="{% if request.url.path == '/events' %}active{% endif %}">Events</a></li>
+        </ul>
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <p>Homelab Storage Monitor v1.0.0 | Last updated: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}</p>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>
