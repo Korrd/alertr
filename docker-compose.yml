@@ -90,8 +90,8 @@ services:
       # Configuration (required)
       - ./config:/config:ro
 
-      # Database - READ ONLY (required)
-      - ./data:/var/lib/hsm:ro
+      # Database - needs write access for SQLite WAL mode
+      - ./data:/var/lib/hsm
 
     ports:
       - "8088:8088"
