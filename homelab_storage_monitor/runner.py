@@ -127,6 +127,12 @@ class Runner:
         if recovery_results and self.config.alerts.send_recovery:
             self._send_recovery_alerts(run.hostname, recovery_results)
 
+        # Close issues whose targets vanished from the results entirely
+        # (removed from config or check disabled)
+        closed = self.state_manager.close_orphaned_issues(run.check_results)
+        if closed:
+            logger.info(f"Closed orphaned issues: {', '.join(closed)}")
+
     def _send_alerts(self, run: RunResult, results: list[CheckResult]) -> None:
         """Send alerts for problem results.
 

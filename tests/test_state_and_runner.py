@@ -59,6 +59,68 @@ class TestStateManager:
         assert state.last_alert_ts is not None
 
 
+class TestOrphanedIssues:
+    def open_issue(self, sm, name: str, identifier: str):
+        sm.process_result(result_with(Status.CRIT, name=name, identifier=identifier))
+
+    def test_removed_target_closes_with_event(self, config, db):
+        sm = StateManager(config, db)
+        self.open_issue(sm, "smart", "/dev/sdb")
+
+        # Next run: /dev/sdb was removed from config, only /dev/sda reports
+        closed = sm.close_orphaned_issues([result_with(Status.OK, identifier="/dev/sda")])
+        assert closed == ["smart:/dev/sdb"]
+        assert db.get_open_issues() == []
+
+        events = db.get_events()
+        assert any(
+            e["payload"].get("reason") == "target_removed"
+            and e["payload"].get("previous_status") == "CRIT"
+            for e in events
+        )
+
+    def test_active_issue_is_untouched(self, config, db):
+        sm = StateManager(config, db)
+        self.open_issue(sm, "smart", "/dev/sda")
+
+        closed = sm.close_orphaned_issues([result_with(Status.CRIT, identifier="/dev/sda")])
+        assert closed == []
+        assert len(db.get_open_issues()) == 1
+
+    def test_blind_check_does_not_close_its_issues(self, config, db):
+        sm = StateManager(config, db)
+        self.open_issue(sm, "smart", "/dev/sda")
+
+        # The whole check crashed: one identifier-less UNKNOWN result
+        crash = CheckResult(name="smart", status=Status.UNKNOWN, summary="check failed")
+        closed = sm.close_orphaned_issues([crash])
+        assert closed == []
+        assert len(db.get_open_issues()) == 1
+
+    def test_disabled_check_closes_its_issues(self, config, db):
+        sm = StateManager(config, db)
+        self.open_issue(sm, "filesystem", "/hostfs/data")
+
+        # Check disabled: it contributes no results at all
+        closed = sm.close_orphaned_issues([result_with(Status.OK, identifier="/dev/sda")])
+        assert closed == ["filesystem:/hostfs/data"]
+        assert db.get_open_issues() == []
+
+    def test_runner_closes_orphans_during_processing(self, config, db):
+        runner = Runner(config, db)
+        runner._process_alerts(make_run(Status.CRIT))  # opens smart:/dev/sda
+        assert len(db.get_open_issues()) == 1
+
+        run = RunResult(
+            hostname="test",
+            ts_start=utcnow(),
+            ts_end=utcnow(),
+            check_results=[result_with(Status.OK, identifier="/dev/sdb")],
+        )
+        runner._process_alerts(run)
+        assert db.get_open_issues() == []
+
+
 class FakeAlerter:
     def __init__(self, succeed: bool):
         self.succeed = succeed

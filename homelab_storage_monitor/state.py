@@ -72,6 +72,54 @@ class StateManager:
             state.record_alert(now)
             self.db.save_issue_state(state)
 
+    def close_orphaned_issues(self, results: list[CheckResult]) -> list[str]:
+        """Close open issues whose target no longer appears in any result.
+
+        When a disk or mountpoint is removed from the config (or a check is
+        disabled), nothing ever updates its issue state again, so it would
+        stay listed as open forever. Closing is recorded as an event, not a
+        recovery alert — "no longer monitored" is not "fixed".
+        """
+        active_keys = {r.dedup_key for r in results}
+        # A check that crashed wholesale reports a single identifier-less
+        # UNKNOWN result; don't conclude its targets are gone while it is
+        # blind to them
+        blind_checks = {
+            r.name for r in results if r.status == Status.UNKNOWN and not r.identifier
+        }
+
+        closed: list[str] = []
+        for issue in self.db.get_open_issues():
+            key = issue["key"]
+            if key in active_keys:
+                continue
+            check_name = key.split(":", 1)[0]
+            if check_name in blind_checks:
+                continue
+
+            state = self.db.get_issue_state(key)
+            if state is None:
+                continue
+            state.update(Status.OK)
+            self.db.save_issue_state(state)
+
+            self.db.save_event(
+                Event(
+                    event_type=EventType.STATE_CHANGE,
+                    severity=Status.OK,
+                    source=check_name,
+                    message=f"Issue closed: {key} is no longer monitored",
+                    payload={
+                        "key": key,
+                        "reason": "target_removed",
+                        "previous_status": issue["status"],
+                    },
+                )
+            )
+            closed.append(key)
+
+        return closed
+
     def _record_state_change(
         self,
         result: CheckResult,
