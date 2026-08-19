@@ -6,11 +6,12 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import click
 
 from homelab_storage_monitor import __version__
-from homelab_storage_monitor.config import load_config
+from homelab_storage_monitor.config import Config, load_config
 from homelab_storage_monitor.db import Database
 
 
@@ -33,6 +34,36 @@ def main(ctx: click.Context, verbose: bool) -> None:
     setup_logging(verbose)
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
+
+
+def refresh_runner(
+    config_path: Path | None,
+    cfg: Config,
+    db: Database,
+    runner: Any,
+) -> tuple[Config, Database, Any]:
+    """Reload config and rebuild the runner if anything changed.
+
+    Lets threshold/limit edits take effect on the next loop iteration
+    without restarting the collector (mounted config files update live in
+    most deployments). Keeps the current setup on reload errors.
+    """
+    from homelab_storage_monitor.runner import Runner
+
+    logger = logging.getLogger("hsm.run")
+    try:
+        new_cfg = load_config(config_path)
+    except Exception as e:
+        logger.warning(f"Config reload failed, keeping current config: {e}")
+        return cfg, db, runner
+
+    if new_cfg == cfg:
+        return cfg, db, runner
+
+    logger.info("Configuration change detected; applying")
+    if new_cfg.history.db_path != cfg.history.db_path:
+        db = Database(new_cfg.history.db_path)
+    return new_cfg, db, Runner(new_cfg, db)
 
 
 @main.command()
@@ -62,8 +93,15 @@ def run(ctx: click.Context, config: Path | None, loop: bool) -> None:
             f"Starting collector loop (interval: {cfg.scheduler.interval_seconds}s)"
         )
         last_retention: float | None = None
+        first_iteration = True
         while True:
             loop_start = time.monotonic()
+
+            # Pick up config edits between iterations
+            if not first_iteration:
+                cfg, db, runner = refresh_runner(config, cfg, db, runner)
+            first_iteration = False
+
             try:
                 result = runner.run_checks()
                 logger.info(
