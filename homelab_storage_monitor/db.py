@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from homelab_storage_monitor.config import Config
 from homelab_storage_monitor.models import (
-    CheckResult,
     Event,
     EventType,
     IssueState,
@@ -20,11 +20,12 @@ from homelab_storage_monitor.models import (
     RunResult,
     Status,
 )
+from homelab_storage_monitor.timeutil import parse_ts, utcnow
 
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -112,8 +113,15 @@ CREATE TABLE IF NOT EXISTS smart_acknowledgments (
     note TEXT
 );
 
+-- Small key/value store for check state (journal cursors, self-test schedule)
+CREATE TABLE IF NOT EXISTS kv_store (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_metrics_ts_name ON metrics(ts, metric_name);
+CREATE INDEX IF NOT EXISTS idx_metrics_name_ts ON metrics(metric_name, ts);
 CREATE INDEX IF NOT EXISTS idx_events_ts_severity ON events(ts, severity);
 CREATE INDEX IF NOT EXISTS idx_check_results_run_id ON check_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_ts ON runs(ts_start);
@@ -172,11 +180,11 @@ class Database:
 
     def _migrate(self, conn: sqlite3.Connection, from_version: int) -> None:
         """Run migrations from from_version to SCHEMA_VERSION."""
-        # Future migrations would go here
-        # Example:
-        # if from_version < 2:
-        #     conn.execute("ALTER TABLE ... ADD COLUMN ...")
-        #     from_version = 2
+        if from_version < 2:
+            # kv_store and idx_metrics_name_ts are created by SCHEMA_SQL;
+            # drop the old index whose column order didn't match the queries
+            conn.execute("DROP INDEX IF EXISTS idx_metrics_ts_name")
+            from_version = 2
 
         conn.execute(
             "UPDATE schema_version SET version = ?",
@@ -434,11 +442,9 @@ class Database:
                 key=row["key"],
                 current_status=Status(row["current_status"]),
                 last_alert_ts=(
-                    datetime.fromisoformat(row["last_alert_ts"])
-                    if row["last_alert_ts"]
-                    else None
+                    parse_ts(row["last_alert_ts"]) if row["last_alert_ts"] else None
                 ),
-                last_change_ts=datetime.fromisoformat(row["last_change_ts"]),
+                last_change_ts=parse_ts(row["last_change_ts"]),
                 alert_count=row["alert_count"],
             )
 
@@ -493,7 +499,7 @@ class Database:
                 INSERT INTO sync_history (ts, vg, lv, sync_pct)
                 VALUES (?, ?, ?, ?)
                 """,
-                (datetime.now().isoformat(), vg, lv, sync_pct),
+                (utcnow().isoformat(), vg, lv, sync_pct),
             )
 
     def get_recent_sync_pcts(self, vg: str, lv: str, limit: int = 10) -> list[float]:
@@ -515,7 +521,7 @@ class Database:
 
     def save_smart_attrs(self, disk: str, attrs: dict[int, int]) -> None:
         """Save SMART attributes for delta detection."""
-        ts = datetime.now().isoformat()
+        ts = utcnow().isoformat()
         with self.connection() as conn:
             conn.executemany(
                 """
@@ -551,6 +557,61 @@ class Database:
             )
             return {row["attr_id"]: row["raw_value"] for row in cur}
 
+    def get_smart_attr_baseline(
+        self,
+        disk: str,
+        attr_id: int,
+        window_days: int,
+    ) -> int | None:
+        """Get the oldest recorded value of an attribute within the window.
+
+        Used for windowed delta detection: comparing against a value from up
+        to window_days ago keeps a "counter increased" finding active for the
+        whole window instead of auto-recovering on the very next run.
+        """
+        cutoff = (utcnow() - timedelta(days=window_days)).isoformat()
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT raw_value FROM smart_history
+                WHERE disk = ? AND attr_id = ? AND ts >= ?
+                ORDER BY ts ASC LIMIT 1
+                """,
+                (disk, attr_id, cutoff),
+            )
+            row = cur.fetchone()
+            return row["raw_value"] if row is not None else None
+
+    # -------------------------------------------------------------------------
+    # Key/Value store (check state: journal cursors, self-test schedule)
+    # -------------------------------------------------------------------------
+
+    def kv_get(self, key: str) -> str | None:
+        """Get a value from the key/value store."""
+        with self.connection() as conn:
+            cur = conn.execute("SELECT value FROM kv_store WHERE key = ?", (key,))
+            row = cur.fetchone()
+            return row["value"] if row is not None else None
+
+    def kv_set(self, key: str, value: str) -> None:
+        """Set a value in the key/value store."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO kv_store (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (key, value, utcnow().isoformat()),
+            )
+
+    def kv_delete(self, key: str) -> None:
+        """Delete a key from the key/value store."""
+        with self.connection() as conn:
+            conn.execute("DELETE FROM kv_store WHERE key = ?", (key,))
+
     # -------------------------------------------------------------------------
     # SMART Acknowledgments
     # -------------------------------------------------------------------------
@@ -563,7 +624,7 @@ class Database:
         note: str | None = None,
     ) -> None:
         """Save or update a SMART error acknowledgment for a disk."""
-        ts = datetime.now().isoformat()
+        ts = utcnow().isoformat()
         with self.connection() as conn:
             conn.execute(
                 """
@@ -637,7 +698,7 @@ class Database:
         Clean up old data based on retention settings.
         Returns counts of deleted rows.
         """
-        now = datetime.now()
+        now = utcnow()
         metrics_cutoff = now - timedelta(days=config.history.retention_days_metrics)
         events_cutoff = now - timedelta(days=config.history.retention_days_events)
 

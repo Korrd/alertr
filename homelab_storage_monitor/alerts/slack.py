@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Any
 
 import requests
 
 from homelab_storage_monitor.config import SlackConfig
 from homelab_storage_monitor.models import RunResult, Status
+from homelab_storage_monitor.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ class SlackAlerter:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*Timestamp:* {result.ts_end.strftime('%Y-%m-%d %H:%M:%S')}",
+                    "text": f"*Timestamp:* {result.ts_end.strftime('%Y-%m-%d %H:%M:%S %Z')}",
                 },
             },
             {"type": "divider"},
@@ -169,18 +169,22 @@ class SlackAlerter:
             "smart": {
                 Status.CRIT: "Disk failure imminent - backup data immediately and replace drive",
                 Status.WARN: "Disk showing early signs of wear - monitor closely and plan replacement",
+                Status.UNKNOWN: "SMART data unavailable - the disk may have failed or been disconnected",
             },
-            "lvm": {
+            "lvm_raid": {
                 Status.CRIT: "RAID array degraded - data redundancy compromised, replace failed drive ASAP",
                 Status.WARN: "RAID sync in progress or minor issue detected",
+                Status.UNKNOWN: "RAID status unavailable - verify LVM is reachable",
             },
             "filesystem": {
                 Status.CRIT: "Filesystem critically full - services may fail, free space immediately",
                 Status.WARN: "Filesystem running low on space - plan cleanup or expansion",
+                Status.UNKNOWN: "Filesystem unreachable - verify the mount is present",
             },
             "journal": {
                 Status.CRIT: "Critical storage errors in system logs - immediate investigation required",
                 Status.WARN: "Storage warnings detected in logs - review for potential issues",
+                Status.UNKNOWN: "Kernel logs unreadable - log scanning is not working",
             },
         }
 
@@ -234,7 +238,7 @@ def send_recovery_alert(
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*Timestamp:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                            "text": f"*Timestamp:* {utcnow().strftime('%Y-%m-%d %H:%M:%S %Z')}",
                         },
                     },
                     {
@@ -301,7 +305,7 @@ def send_ack_alert(
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*Timestamp:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                            "text": f"*Timestamp:* {utcnow().strftime('%Y-%m-%d %H:%M:%S %Z')}",
                         },
                     },
                     {

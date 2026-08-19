@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate favicon files from the logo.png for the web app."""
 
-from PIL import Image
 import os
+
+from PIL import Image
 
 # Source logo and output directory
 logo_path = "docs/images/logo.png"

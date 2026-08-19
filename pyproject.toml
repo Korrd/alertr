@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "homelab-storage-monitor"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Monitoring and alerting for homelab disk arrays"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -53,8 +53,11 @@ dev = [
 hsm = "homelab_storage_monitor.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/alertr/homelab-storage-monitor"
-Repository = "https://github.com/alertr/homelab-storage-monitor"
+Homepage = "https://github.com/Korrd/alertr"
+Repository = "https://github.com/Korrd/alertr"
+
+[tool.hatch.version]
+path = "homelab_storage_monitor/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["homelab_storage_monitor"]
@@ -65,7 +68,13 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
-ignore = ["E501"]
+# E501: long lines; UP042: (str, Enum) kept deliberately for JSON/template
+# serialization of Status/EventType values
+ignore = ["E501", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+# B008: Depends() in argument defaults is the FastAPI dependency idiom
+"homelab_storage_monitor/web/app.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.11"

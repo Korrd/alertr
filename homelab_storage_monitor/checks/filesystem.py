@@ -90,10 +90,7 @@ class FilesystemCheck(BaseCheck):
         free_bytes = stat.f_bavail * stat.f_frsize  # Available to non-root
         used_bytes = total_bytes - (stat.f_bfree * stat.f_frsize)
 
-        if total_bytes == 0:
-            usage_pct = 0.0
-        else:
-            usage_pct = (used_bytes / total_bytes) * 100
+        usage_pct = 0.0 if total_bytes == 0 else (used_bytes / total_bytes) * 100
 
         # Record metrics
         labels = {"mount": path}
@@ -114,11 +111,11 @@ class FilesystemCheck(BaseCheck):
         }
 
         # Format sizes for human-readable summary
-        def format_size(b: int) -> str:
+        def format_size(b: float) -> str:
             for unit in ["B", "KB", "MB", "GB", "TB"]:
                 if abs(b) < 1024:
-                    return f"{b:.1f}{unit}"
-                b /= 1024  # type: ignore
+                    return f"{b:.0f}{unit}" if unit == "B" else f"{b:.1f}{unit}"
+                b /= 1024
             return f"{b:.1f}PB"
 
         free_human = format_size(free_bytes)

@@ -11,20 +11,14 @@ from typing import Any
 from homelab_storage_monitor.checks.base import BaseCheck
 from homelab_storage_monitor.config import Config
 from homelab_storage_monitor.db import Database
-from homelab_storage_monitor.models import CheckResult, Metric, Status
+from homelab_storage_monitor.models import CheckResult, Event, EventType, Metric, Status
+from homelab_storage_monitor.timeutil import parse_ts, utcnow
 
 logger = logging.getLogger(__name__)
 
-# Key SMART attributes to monitor
-# ID: (name, critical_if_nonzero, description)
-SMART_ATTRS = {
-    5: ("Reallocated_Sector_Ct", False, "Reallocated sectors"),
-    187: ("Reported_Uncorrect", True, "Reported uncorrectable errors"),
-    188: ("Command_Timeout", False, "Command timeouts"),
-    197: ("Current_Pending_Sector", True, "Pending sector count"),
-    198: ("Offline_Uncorrectable", True, "Offline uncorrectable sectors"),
-    199: ("UDMA_CRC_Error_Count", False, "CRC errors (cabling)"),
-}
+# smartctl exit status bits (see smartctl(8))
+EXIT_BIT_CMDLINE_ERROR = 0x01
+EXIT_BIT_OPEN_FAILED = 0x02
 
 
 class SmartCheck(BaseCheck):
@@ -35,10 +29,12 @@ class SmartCheck(BaseCheck):
     def __init__(self, config: Config, db: Database):
         super().__init__(config, db)
         self._metrics: list[Metric] = []
+        self._selftest_launched = False
 
     def run(self) -> list[CheckResult]:
         """Check all configured disks."""
         self._metrics = []
+        self._selftest_launched = False  # At most one test launch per run
 
         if not self.config.smart.enabled:
             return []
@@ -73,7 +69,71 @@ class SmartCheck(BaseCheck):
                 identifier=disk,
             )
 
-        return self._analyze_smart(disk, smart_data)
+        failure = self._check_smartctl_failure(disk, smart_data)
+        if failure is not None:
+            return failure
+
+        result = self._analyze_smart(disk, smart_data)
+
+        try:
+            self._maybe_schedule_selftest(disk, smart_data)
+        except Exception as e:
+            logger.warning(f"Self-test scheduling failed for {disk}: {e}")
+
+        return result
+
+    def _check_smartctl_failure(
+        self, disk: str, smart_data: dict[str, Any]
+    ) -> CheckResult | None:
+        """Detect smartctl-level failures that would otherwise look healthy.
+
+        smartctl emits valid JSON even when it cannot open the device — with
+        no smart_status and no attribute table. Without this check, a dead or
+        disconnected disk would be reported as OK.
+        """
+        smartctl_info = smart_data.get("smartctl", {})
+        exit_status = smartctl_info.get("exit_status", 0)
+        error_messages = [
+            m.get("string", "")
+            for m in smartctl_info.get("messages", [])
+            if m.get("severity") == "error"
+        ]
+
+        if exit_status & EXIT_BIT_OPEN_FAILED:
+            detail = error_messages[0] if error_messages else "smartctl could not open the device"
+            return CheckResult(
+                name=self.name,
+                status=Status.CRIT,
+                summary=f"{disk}: cannot read SMART data - disk may have failed or been disconnected",
+                details={"disk": disk, "error": detail, "exit_status": exit_status},
+                identifier=disk,
+            )
+
+        if exit_status & EXIT_BIT_CMDLINE_ERROR:
+            detail = error_messages[0] if error_messages else "smartctl command line error"
+            return CheckResult(
+                name=self.name,
+                status=Status.UNKNOWN,
+                summary=f"{disk}: smartctl invocation failed",
+                details={"disk": disk, "error": detail, "exit_status": exit_status},
+                identifier=disk,
+            )
+
+        has_any_data = (
+            "smart_status" in smart_data
+            or smart_data.get("ata_smart_attributes", {}).get("table")
+            or smart_data.get("nvme_smart_health_information_log")
+        )
+        if not has_any_data:
+            return CheckResult(
+                name=self.name,
+                status=Status.UNKNOWN,
+                summary=f"{disk}: smartctl returned no usable SMART data",
+                details={"disk": disk, "error": "no smart_status or attribute data in output"},
+                identifier=disk,
+            )
+
+        return None
 
     def _get_smart_data(self, disk: str) -> dict[str, Any]:
         """Query smartctl for disk information."""
@@ -98,15 +158,14 @@ class SmartCheck(BaseCheck):
         """Parse traditional smartctl text output."""
         data: dict[str, Any] = {
             "device": {"name": disk},
-            "smart_status": {"passed": True},
             "ata_smart_attributes": {"table": []},
         }
 
         # Check for PASSED/FAILED
         if "PASSED" in output:
-            data["smart_status"]["passed"] = True
+            data["smart_status"] = {"passed": True}
         elif "FAILED" in output:
-            data["smart_status"]["passed"] = False
+            data["smart_status"] = {"passed": False}
 
         # Parse attribute table
         # Format: ID# ATTRIBUTE_NAME          FLAG     VALUE WORST THRESH TYPE      UPDATED  WHEN_FAILED RAW_VALUE
@@ -126,6 +185,11 @@ class SmartCheck(BaseCheck):
                     "thresh": int(match.group(5)),
                     "raw": {"value": int(match.group(6))},
                 })
+
+        # Nothing parsable means we know nothing about this disk; raising
+        # here surfaces as UNKNOWN instead of a false "healthy"
+        if "smart_status" not in data and not data["ata_smart_attributes"]["table"]:
+            raise ValueError(f"no parsable SMART data in smartctl output for {disk}")
 
         return data
 
@@ -355,9 +419,22 @@ class SmartCheck(BaseCheck):
         # Return as-is if nothing works
         return raw_value
 
+    def _attr_growth(self, disk: str, attr_id: int, current: int, window_days: int) -> int:
+        """Growth of a cumulative counter within the delta window.
+
+        Compares against the oldest recorded value in the window, so a
+        "counter increased" finding stays active for the whole window instead
+        of flapping back to OK (with a false recovery alert) on the next run.
+        """
+        baseline = self.db.get_smart_attr_baseline(disk, attr_id, window_days)
+        if baseline is None:
+            return 0
+        return max(0, current - baseline)
+
     def _analyze_smart(self, disk: str, smart_data: dict[str, Any]) -> CheckResult:
         """Analyze SMART data and determine health status."""
         thresholds = self.config.smart.thresholds
+        window_days = thresholds.delta_window_days
         issues: list[str] = []
         warnings: list[str] = []
 
@@ -392,12 +469,17 @@ class SmartCheck(BaseCheck):
         ack = self.db.get_smart_ack(disk)
         error_count_acked = ack["error_count_acked"] if ack else 0
 
-        # Check for self-test failures (skip if acknowledged)
+        # Check for self-test failures (skip error-log entries if acknowledged)
+        error_log_warning: str | None = None
         if selftest_results["has_errors"]:
-            if selftest_results["error_count"] > 0 and selftest_results["error_count"] > error_count_acked:
+            if selftest_results["error_count"] > error_count_acked:
                 # Only warn about new errors beyond what was acknowledged
                 new_errors = selftest_results["error_count"] - error_count_acked
-                warnings.append(f"Error log has {new_errors} new error(s) (total: {selftest_results['error_count']})")
+                error_log_warning = (
+                    f"Error log has {new_errors} new error(s)"
+                    f" (total: {selftest_results['error_count']})"
+                )
+                warnings.append(error_log_warning)
             for test in selftest_results["tests"]:
                 if not test["passed"]:
                     issues.append(f"Self-test failed: {test['type']} - {test['status']}")
@@ -407,7 +489,6 @@ class SmartCheck(BaseCheck):
         smart_status = smart_data.get("smart_status", {})
         overall_passed = smart_status.get("passed", True)
 
-        labels = {"disk": disk}
         self._metrics.append(
             Metric(
                 name="smart_overall_pass",
@@ -419,17 +500,16 @@ class SmartCheck(BaseCheck):
         if not overall_passed:
             issues.append("SMART overall health: FAILED")
 
-        # Get last known values for delta detection
-        last_attrs = self.db.get_last_smart_attrs(disk)
-        current_attrs: dict[int, int] = {}
-
-        # Parse attributes
+        # NVMe drives report health in their own log
         attr_table = smart_data.get("ata_smart_attributes", {}).get("table", [])
-        # Also check NVMe style
         if not attr_table:
             nvme_health = smart_data.get("nvme_smart_health_information_log", {})
             if nvme_health:
-                return self._analyze_nvme(disk, nvme_health, overall_passed, smart_data)
+                return self._analyze_nvme(
+                    disk, nvme_health, issues, warnings, error_log_warning, details
+                )
+
+        current_attrs: dict[int, int] = {}
 
         for attr in attr_table:
             attr_id = attr.get("id")
@@ -470,18 +550,23 @@ class SmartCheck(BaseCheck):
                 "thresh": attr.get("thresh"),
             }
 
-            # Check thresholds
+            # Check thresholds. Cumulative lifetime counters (5, 187, 199) use
+            # windowed growth; point-in-time counters (197, 198) use absolute values.
             if attr_id == 5:  # Reallocated Sector Count
                 if raw_value > thresholds.realloc_warn:
                     warnings.append(f"Reallocated sectors: {raw_value}")
-                # Check for increase
-                if attr_id in last_attrs and raw_value > last_attrs[attr_id]:
-                    delta = raw_value - last_attrs[attr_id]
-                    issues.append(f"Reallocated sectors increased by {delta}")
+                growth = self._attr_growth(disk, 5, raw_value, window_days)
+                if growth > 0:
+                    issues.append(
+                        f"Reallocated sectors increased by {growth} in the last {window_days}d"
+                    )
 
-            elif attr_id == 187:  # Reported Uncorrectable
-                if raw_value > thresholds.reported_uncorr_crit:
-                    issues.append(f"Uncorrectable errors: {raw_value}")
+            elif attr_id == 187:  # Reported Uncorrectable (cumulative)
+                growth = self._attr_growth(disk, 187, raw_value, window_days)
+                if growth > thresholds.reported_uncorr_crit:
+                    issues.append(
+                        f"Uncorrectable errors increased by {growth} in the last {window_days}d"
+                    )
 
             elif attr_id == 197:  # Current Pending Sector
                 if raw_value > thresholds.pending_crit:
@@ -491,20 +576,53 @@ class SmartCheck(BaseCheck):
                 if raw_value > thresholds.offline_uncorr_crit:
                     issues.append(f"Offline uncorrectable: {raw_value}")
 
-            elif attr_id == 199:  # UDMA CRC Error Count
-                if attr_id in last_attrs:
-                    delta = raw_value - last_attrs[attr_id]
-                    if delta >= thresholds.crc_warn_delta:
-                        warnings.append(f"CRC errors increased by {delta} (cabling issue?)")
+            elif attr_id == 199:  # UDMA CRC Error Count (cumulative)
+                growth = self._attr_growth(disk, 199, raw_value, window_days)
+                if growth >= thresholds.crc_warn_delta:
+                    warnings.append(
+                        f"CRC errors increased by {growth} in the last {window_days}d"
+                        " (cabling issue?)"
+                    )
+
+            elif attr_id in (177, 231, 233):  # SSD wear indicators (normalized)
+                normalized = attr.get("value")
+                if normalized is not None and normalized <= thresholds.ssd_wear_warn_value:
+                    attr_name = attr.get("name", f"attr_{attr_id}")
+                    warnings.append(f"SSD wear indicator low: {attr_name} at {normalized}")
+
+        # Temperature: prefer attr 194, fall back to 190
+        temp: int | None = None
+        for temp_attr_id in (194, 190):
+            if temp_attr_id in current_attrs:
+                temp = self._parse_temperature(current_attrs[temp_attr_id], temp_attr_id)
+                break
+        if temp is not None and temp > 0:
+            if temp >= thresholds.temp_crit_c:
+                issues.append(f"Temperature critical: {temp}°C")
+            elif temp >= thresholds.temp_warn_c:
+                warnings.append(f"Temperature high: {temp}°C")
 
         # Save current attrs for future delta detection
         if current_attrs:
             self.db.save_smart_attrs(disk, current_attrs)
 
+        return self._build_result(disk, issues, warnings, error_log_warning, details)
+
+    def _build_result(
+        self,
+        disk: str,
+        issues: list[str],
+        warnings: list[str],
+        error_log_warning: str | None,
+        details: dict[str, Any],
+    ) -> CheckResult:
+        """Assemble the CheckResult from collected issues and warnings."""
         details["issues"] = issues
         details["warnings"] = warnings
+        # Warnings not covered by the error-log acknowledgment system; the
+        # dashboard uses this to recompute status after a later ack.
+        details["other_warnings"] = [w for w in warnings if w != error_log_warning]
 
-        # Determine overall status
         if issues:
             return CheckResult(
                 name=self.name,
@@ -535,29 +653,23 @@ class SmartCheck(BaseCheck):
         self,
         disk: str,
         nvme_health: dict[str, Any],
-        overall_passed: bool,
-        smart_data: dict[str, Any],
+        issues: list[str],
+        warnings: list[str],
+        error_log_warning: str | None,
+        details: dict[str, Any],
     ) -> CheckResult:
-        """Analyze NVMe health information."""
-        issues: list[str] = []
-        warnings: list[str] = []
+        """Analyze NVMe health information.
+
+        Receives the issues/warnings already collected by _analyze_smart
+        (overall status, error log vs. acknowledgments, self-test failures)
+        so NVMe drives get the same treatment as ATA ones.
+        """
+        thresholds = self.config.smart.thresholds
+        window_days = thresholds.delta_window_days
         labels = {"disk": disk}
 
-        # Extract and store device info
-        device_info = self._extract_device_info(smart_data)
-        if device_info.get("model"):
-            self._metrics.append(
-                Metric(name="disk_info", value_text=json.dumps(device_info), labels=labels)
-            )
-
-        details: dict[str, Any] = {
-            "disk": disk,
-            "type": "nvme",
-            "device_info": device_info,
-            "issues": [],
-            "warnings": [],
-            "health": nvme_health,
-        }
+        details["type"] = "nvme"
+        details["health"] = nvme_health
 
         # Store NVMe health values as "smart_attr_raw" metrics with special IDs
         # We use IDs 1000+ to differentiate from standard SMART attributes
@@ -569,6 +681,10 @@ class SmartCheck(BaseCheck):
             self._metrics.append(
                 Metric(name="smart_attr_raw", value_num=float(temp), labels={**labels, "attr": "1001"})
             )
+            if temp >= thresholds.temp_crit_c:
+                issues.append(f"Temperature critical: {temp}°C")
+            elif temp >= thresholds.temp_warn_c:
+                warnings.append(f"Temperature high: {temp}°C")
 
         # Percentage used (wear level)
         pct_used = nvme_health.get("percentage_used", 0)
@@ -589,13 +705,20 @@ class SmartCheck(BaseCheck):
         if spare < spare_threshold:
             issues.append(f"NVMe spare below threshold: {spare}%")
 
-        # Media errors
+        # Media errors: cumulative lifetime counter, so alert on growth within
+        # the window rather than being perpetually CRIT on old, stable errors
         media_errors = nvme_health.get("media_errors", 0)
         self._metrics.append(
             Metric(name="smart_attr_raw", value_num=float(media_errors), labels={**labels, "attr": "1004"})
         )
-        if media_errors > 0:
-            issues.append(f"NVMe media errors: {media_errors}")
+        media_growth = self._attr_growth(disk, 1004, media_errors, window_days)
+        if media_growth > 0:
+            issues.append(
+                f"NVMe media errors increased by {media_growth} in the last {window_days}d"
+                f" (total: {media_errors})"
+            )
+        elif media_errors > 0:
+            details["historical_media_errors"] = media_errors
 
         # Power on hours
         power_on_hours = nvme_health.get("power_on_hours", 0)
@@ -637,34 +760,96 @@ class SmartCheck(BaseCheck):
         if critical_warning != 0:
             issues.append(f"NVMe critical warning: {critical_warning}")
 
-        if not overall_passed:
-            issues.insert(0, "SMART overall health: FAILED")
+        # Save cumulative counters for future windowed delta detection
+        self.db.save_smart_attrs(disk, {1004: media_errors})
 
-        details["issues"] = issues
-        details["warnings"] = warnings
+        return self._build_result(disk, issues, warnings, error_log_warning, details)
 
-        if issues:
-            return CheckResult(
-                name=self.name,
-                status=Status.CRIT,
-                summary=f"{disk}: {issues[0]}",
-                details=details,
-                identifier=disk,
-            )
+    # -------------------------------------------------------------------------
+    # SMART self-test scheduling
+    # -------------------------------------------------------------------------
 
-        if warnings:
-            return CheckResult(
-                name=self.name,
-                status=Status.WARN,
-                summary=f"{disk}: {warnings[0]}",
-                details=details,
-                identifier=disk,
-            )
+    def _maybe_schedule_selftest(self, disk: str, smart_data: dict[str, Any]) -> None:
+        """Start a SMART self-test if one is due for this disk.
 
-        return CheckResult(
-            name=self.name,
-            status=Status.OK,
-            summary=f"{disk}: NVMe healthy",
-            details=details,
-            identifier=disk,
+        At most one test is launched per check run so tests are naturally
+        staggered across disks. Launch timestamps live in the kv store.
+        """
+        cfg = self.config.smart.selftest
+        if not cfg.enabled or self._selftest_launched:
+            return
+
+        if self._selftest_in_progress(smart_data):
+            return
+
+        now = utcnow()
+        short_key = f"smart:selftest:short:{disk}"
+        long_key = f"smart:selftest:long:{disk}"
+        last_short = self.db.kv_get(short_key)
+        last_long = self.db.kv_get(long_key)
+
+        if last_short is None and last_long is None:
+            # First sight of this disk: run a quick short test right away and
+            # start the long-test clock from now
+            if self._start_selftest(disk, "short"):
+                self.db.kv_set(short_key, now.isoformat())
+                self.db.kv_set(long_key, now.isoformat())
+            return
+
+        def due(last: str | None, interval_days: int) -> bool:
+            if last is None:
+                return True
+            return (now - parse_ts(last)).days >= interval_days
+
+        kind, key = None, ""
+        if due(last_long, cfg.long_interval_days):
+            kind, key = "long", long_key
+        elif due(last_short, cfg.short_interval_days):
+            kind, key = "short", short_key
+
+        if kind and self._start_selftest(disk, kind):
+            self.db.kv_set(key, now.isoformat())
+
+    def _selftest_in_progress(self, smart_data: dict[str, Any]) -> bool:
+        """Check whether a self-test is currently running."""
+        ata_status = (
+            smart_data.get("ata_smart_data", {}).get("self_test", {}).get("status", {})
         )
+        if "remaining_percent" in ata_status:
+            return True
+
+        nvme_op = (
+            smart_data.get("nvme_self_test_log", {}).get("current_self_test_operation", {})
+        )
+        return bool(nvme_op.get("value", 0))
+
+    def _start_selftest(self, disk: str, kind: str) -> bool:
+        """Launch a background SMART self-test. Returns True on success."""
+        try:
+            result = subprocess.run(
+                ["smartctl", "-t", kind, disk],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to start {kind} self-test on {disk}: {e}")
+            return False
+
+        if result.returncode != 0:
+            output = result.stderr.strip() or result.stdout.strip()
+            logger.warning(f"smartctl -t {kind} {disk} failed: {output}")
+            return False
+
+        self._selftest_launched = True
+        logger.info(f"Started {kind} SMART self-test on {disk}")
+        self.db.save_event(
+            Event(
+                event_type=EventType.SELFTEST_STARTED,
+                severity=Status.OK,
+                source=self.name,
+                message=f"Started {kind} SMART self-test on {disk}",
+                payload={"disk": disk, "test_type": kind},
+            )
+        )
+        return True

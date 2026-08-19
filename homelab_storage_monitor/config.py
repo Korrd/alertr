@@ -39,6 +39,19 @@ class SmartThresholds:
     pending_crit: int = 0  # Attribute 197: Current Pending Sector
     offline_uncorr_crit: int = 0  # Attribute 198: Offline Uncorrectable
     reported_uncorr_crit: int = 0  # Attribute 187: Reported Uncorrectable
+    delta_window_days: int = 7  # Counter growth within this window stays CRIT/WARN
+    temp_warn_c: int = 55  # Drive temperature WARN threshold (°C)
+    temp_crit_c: int = 65  # Drive temperature CRIT threshold (°C)
+    ssd_wear_warn_value: int = 10  # WARN when SSD wear attrs' normalized value <= this
+
+
+@dataclass
+class SelftestConfig:
+    """SMART self-test scheduling configuration."""
+
+    enabled: bool = True
+    short_interval_days: int = 7
+    long_interval_days: int = 30
 
 
 @dataclass
@@ -48,6 +61,7 @@ class SmartConfig:
     enabled: bool = True
     disks: list[str] = field(default_factory=list)
     thresholds: SmartThresholds = field(default_factory=SmartThresholds)
+    selftest: SelftestConfig = field(default_factory=SelftestConfig)
 
 
 @dataclass
@@ -59,6 +73,7 @@ class JournalConfig:
     fallback_log_paths: list[str] = field(
         default_factory=lambda: ["/var/log/kern.log", "/var/log/syslog"]
     )
+    latch_hours: int = 24  # Errors keep the check non-OK for this long
 
 
 @dataclass
@@ -181,6 +196,7 @@ class Config:
         if "smart" in data:
             smart_data = data["smart"]
             thresholds_data = smart_data.get("thresholds", {})
+            selftest_data = smart_data.get("selftest", {})
             config.smart = SmartConfig(
                 enabled=smart_data.get("enabled", True),
                 disks=smart_data.get("disks", []),
@@ -190,6 +206,15 @@ class Config:
                     pending_crit=thresholds_data.get("pending_crit", 0),
                     offline_uncorr_crit=thresholds_data.get("offline_uncorr_crit", 0),
                     reported_uncorr_crit=thresholds_data.get("reported_uncorr_crit", 0),
+                    delta_window_days=thresholds_data.get("delta_window_days", 7),
+                    temp_warn_c=thresholds_data.get("temp_warn_c", 55),
+                    temp_crit_c=thresholds_data.get("temp_crit_c", 65),
+                    ssd_wear_warn_value=thresholds_data.get("ssd_wear_warn_value", 10),
+                ),
+                selftest=SelftestConfig(
+                    enabled=selftest_data.get("enabled", True),
+                    short_interval_days=selftest_data.get("short_interval_days", 7),
+                    long_interval_days=selftest_data.get("long_interval_days", 30),
                 ),
             )
 
@@ -202,6 +227,7 @@ class Config:
                 fallback_log_paths=journal_data.get(
                     "fallback_log_paths", ["/var/log/kern.log", "/var/log/syslog"]
                 ),
+                latch_hours=journal_data.get("latch_hours", 24),
             )
 
         # Filesystem

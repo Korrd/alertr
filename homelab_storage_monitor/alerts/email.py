@@ -5,12 +5,12 @@ from __future__ import annotations
 import logging
 import smtplib
 import ssl
-from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from homelab_storage_monitor.config import EmailConfig
 from homelab_storage_monitor.models import RunResult, Status
+from homelab_storage_monitor.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ class EmailAlerter:
     ) -> tuple[str, str]:
         """Build email body (text and HTML versions)."""
         status = result.overall_status
-        timestamp = result.ts_end.strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = result.ts_end.strftime("%Y-%m-%d %H:%M:%S %Z")
 
         # Plain text version
         text_lines = [
@@ -236,6 +236,9 @@ class EmailAlerter:
             hints.append("Check dmesg for recent errors")
             hints.append("Inspect disk and cabling")
 
+        if details.get("error") and "disconnected" in str(details.get("error", "")).lower():
+            hints.append("Verify the disk is present: lsblk, ls -la /dev/")
+
         return hints or ["Review system logs and hardware status"]
 
     def _send_email(self, subject: str, text_body: str, html_body: str) -> None:
@@ -292,7 +295,7 @@ def send_recovery_email(
         return False
 
     subject = f"[OK] homelab-storage-monitor - {hostname} - Recovery"
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = utcnow().strftime("%Y-%m-%d %H:%M:%S %Z")
 
     text_body = f"""Homelab Storage Monitor - Recovery
 

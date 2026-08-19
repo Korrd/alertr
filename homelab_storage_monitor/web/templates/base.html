@@ -10,7 +10,7 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192x192.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
     <link rel="stylesheet" href="/static/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="/static/chart.umd.min.js"></script>
     <script>
         // Theme handling - runs immediately to prevent flash
         (function() {
@@ -44,7 +44,7 @@
     </main>
 
     <footer class="footer">
-        <p>Homelab Storage Monitor v1.0.0 | Last updated: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}</p>
+        <p>Homelab Storage Monitor v{{ version }} | Last updated: {{ now().strftime('%Y-%m-%d %H:%M:%S %Z') }}</p>
     </footer>
 
     <script>

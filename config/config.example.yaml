@@ -24,11 +24,24 @@ smart:
     - /dev/sdb
   # Thresholds for SMART attributes
   thresholds:
-    realloc_warn: 10       # Attr 5: Reallocated Sector Count
-    crc_warn_delta: 1      # Attr 199: CRC errors (increase triggers WARN)
-    pending_crit: 0        # Attr 197: Current Pending Sector
-    offline_uncorr_crit: 0 # Attr 198: Offline Uncorrectable
-    reported_uncorr_crit: 0 # Attr 187: Reported Uncorrectable
+    realloc_warn: 10       # Attr 5: Reallocated Sector Count (absolute WARN)
+    crc_warn_delta: 1      # Attr 199: CRC error growth within window triggers WARN
+    pending_crit: 0        # Attr 197: Current Pending Sector (absolute CRIT)
+    offline_uncorr_crit: 0 # Attr 198: Offline Uncorrectable (absolute CRIT)
+    reported_uncorr_crit: 0 # Attr 187: Uncorrectable error growth within window triggers CRIT
+    delta_window_days: 7   # Cumulative counters (5, 187, 199, NVMe media errors)
+                           # alert on growth within this window and stay
+                           # CRIT/WARN for the whole window
+    temp_warn_c: 55        # Drive temperature WARN threshold (Celsius)
+    temp_crit_c: 65        # Drive temperature CRIT threshold (Celsius)
+    ssd_wear_warn_value: 10 # WARN when SSD wear attrs (177/231/233) normalized value <= this
+  # Periodic SMART self-tests (short weekly, long monthly by default).
+  # A short test runs on each disk when it is first seen. At most one test
+  # is started per check run so tests are staggered across disks.
+  selftest:
+    enabled: true
+    short_interval_days: 7
+    long_interval_days: 30
 
 # Kernel/journal log scanning
 journal:
@@ -38,6 +51,9 @@ journal:
   fallback_log_paths:
     - /var/log/kern.log
     - /var/log/syslog
+  # Matched errors keep the check non-OK for this long, so a single error
+  # burst can't flap CRIT -> OK between two runs
+  latch_hours: 24
 
 # Filesystem capacity monitoring
 filesystem:

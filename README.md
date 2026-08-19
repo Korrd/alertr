@@ -35,13 +35,16 @@
 
 ### 🔍 Comprehensive Health Checks
 - **LVM RAID1 Monitoring** – Detect mirror degradation, sync issues, and stalled rebuilds
-- **SMART Health Checks** – Monitor disk health attributes with delta detection for ATA and NVMe drives
-- **Self-Test Results** – Display SMART self-test history and detailed error logs
+- **SMART Health Checks** – Monitor disk health attributes with windowed delta detection for ATA and NVMe drives
+- **Dead Disk Detection** – A disk that stops responding or vanishes from the bus raises a CRIT alert
+- **Automatic Self-Tests** – Schedule short (weekly) and long (monthly) SMART self-tests, staggered across disks
+- **Temperature & SSD Wear** – Alert on high drive temperatures and low SSD life-left indicators
 - **Filesystem Capacity** – Track usage with configurable warning/critical thresholds
-- **Kernel Log Scanning** – Detect I/O errors, ext4 errors, and SATA issues
+- **Kernel Log Scanning** – Detect I/O errors, ext4 errors, and SATA issues; errors latch for 24h so nothing flaps
 
 ### 🚨 Smart Alerting
 - **Deduplicated Alerts** – No alert fatigue with configurable cooldown periods
+- **Delivery Retries** – Failed Slack/email sends are retried on the next run, never silently lost
 - **Multi-Channel** – Slack and email notifications with impact descriptions
 - **Recovery Notifications** – Know when issues resolve themselves
 - **Error Acknowledgment** – Suppress known issues with notes and audit trail
@@ -55,6 +58,7 @@
 
 ### 🏠 Homelab Friendly
 - **Simple Backup** – Single SQLite database file
+- **Automatic Retention** – Old metrics and events are cleaned up daily by the collector
 - **Low Resource Usage** – Designed for always-on home servers
 - **Docker Ready** – Two-container architecture for security
 - **Easy Configuration** – Single YAML config file
@@ -332,6 +336,11 @@ Use the token as the password with any username.
 
 </details>
 
+> [!IMPORTANT]
+> Basic auth sends credentials in cleartext over plain HTTP. If the dashboard
+> is reachable beyond your trusted LAN, put a TLS-terminating reverse proxy
+> (Caddy, nginx, Traefik) in front of it.
+
 <br>
 
 ## 💾 Backup and Restore
@@ -342,15 +351,20 @@ The entire state lives in a single SQLite file—easy to backup, easy to restore
 <summary><strong>Backup</strong></summary>
 <br>
 
+Use SQLite's online backup — safe while both services are running, and it
+captures writes still sitting in the WAL file (a plain `cp` can miss those):
+
 ```bash
-# Stop collector to ensure consistency
-docker-compose stop hsm_collector
+sqlite3 data/hsm.sqlite ".backup /backup/hsm-$(date +%Y%m%d).sqlite"
+```
 
-# Copy database
+If you prefer a plain file copy, stop both services first so the WAL is
+checkpointed:
+
+```bash
+docker-compose stop hsm_collector hsm_dashboard
 cp data/hsm.sqlite /backup/hsm-$(date +%Y%m%d).sqlite
-
-# Restart collector
-docker-compose start hsm_collector
+docker-compose up -d
 ```
 
 </details>

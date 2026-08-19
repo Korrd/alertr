@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from homelab_storage_monitor.config import Config
 from homelab_storage_monitor.db import Database
@@ -14,6 +13,7 @@ from homelab_storage_monitor.models import (
     IssueState,
     Status,
 )
+from homelab_storage_monitor.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class StateManager:
             state = IssueState(
                 key=key,
                 current_status=Status.OK,
-                last_change_ts=datetime.now(),
+                last_change_ts=utcnow(),
             )
 
         # Determine if we should alert
@@ -55,11 +55,22 @@ class StateManager:
         if result.status != state.current_status:
             self._record_state_change(result, state.current_status)
 
-        # Update state
-        state.update(result.status, alerted=should_alert)
+        # Update status only; last_alert_ts is stamped by mark_alerted()
+        # once a delivery actually succeeds, so failed sends get retried.
+        state.update(result.status)
         self.db.save_issue_state(state)
 
         return should_alert, reason
+
+    def mark_alerted(self, results: list[CheckResult]) -> None:
+        """Record successful alert delivery for the given results."""
+        now = utcnow()
+        for result in results:
+            state = self.db.get_issue_state(result.dedup_key)
+            if state is None:
+                continue
+            state.record_alert(now)
+            self.db.save_issue_state(state)
 
     def _record_state_change(
         self,

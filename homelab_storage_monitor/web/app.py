@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import secrets
 from datetime import datetime
@@ -15,10 +16,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from homelab_storage_monitor import __version__
 from homelab_storage_monitor.config import Config, load_config
 from homelab_storage_monitor.db import Database
 from homelab_storage_monitor.models import EventType, Status
-from homelab_storage_monitor.smart_attrs import get_attr_info, Importance
+from homelab_storage_monitor.smart_attrs import Importance, get_attr_info
+from homelab_storage_monitor.timeutil import utcnow
 
 # Paths for templates and static files
 PACKAGE_DIR = Path(__file__).parent
@@ -34,15 +37,51 @@ class AckRequest(BaseModel):
     note: str | None = None
 
 
+def _parse_query_ts(value: str | None, param: str) -> datetime | None:
+    """Parse an ISO timestamp query param, returning 422 on bad input."""
+    if value is None:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid ISO timestamp for '{param}': {value}",
+        ) from None
+
+
+def _parse_enum(enum_cls: type, value: str | None, param: str) -> Any:
+    """Parse an enum query param, returning 422 on bad input."""
+    if not value:
+        return None
+    try:
+        return enum_cls(value)
+    except ValueError:
+        valid = ", ".join(e.value for e in enum_cls)  # type: ignore[attr-defined]
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid value for '{param}': {value} (expected one of: {valid})",
+        ) from None
+
+
 def create_app(config: Config | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     if config is None:
         config = load_config()
 
+    # Fail loudly on misconfiguration instead of locking everyone out
+    if config.dashboard.auth_enabled and not (
+        config.dashboard.auth_password or config.dashboard.auth_token
+    ):
+        raise ValueError(
+            "dashboard.auth_enabled is true but neither auth_password nor "
+            "auth_token is set; set one or disable auth"
+        )
+
     app = FastAPI(
         title="Homelab Storage Monitor",
         description="Dashboard for storage health monitoring",
-        version="1.0.0",
+        version=__version__,
     )
 
     # Store config in app state
@@ -78,7 +117,8 @@ def create_app(config: Config | None = None) -> FastAPI:
     templates.env.filters["natural_time"] = hours_to_natural
 
     # Add template globals
-    templates.env.globals["now"] = datetime.now
+    templates.env.globals["now"] = utcnow
+    templates.env.globals["version"] = __version__
     templates.env.globals["get_attr_info"] = get_attr_info
     templates.env.globals["Importance"] = Importance
 
@@ -89,7 +129,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     def get_db() -> Database:
         return app.state.db
 
-    async def require_auth(request: Request) -> None:
+    def require_auth(request: Request) -> None:
         """Require authentication if enabled."""
         cfg: Config = app.state.config
 
@@ -118,7 +158,7 @@ def create_app(config: Config | None = None) -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials format",
                 headers={"WWW-Authenticate": "Basic"},
-            )
+            ) from None
 
         # Check username/password
         if cfg.dashboard.auth_password:
@@ -134,12 +174,11 @@ def create_app(config: Config | None = None) -> FastAPI:
                 return
 
         # Check bearer token (passed as password with any username)
-        if cfg.dashboard.auth_token:
-            if secrets.compare_digest(
-                password.encode("utf-8"),
-                cfg.dashboard.auth_token.encode("utf-8"),
-            ):
-                return
+        if cfg.dashboard.auth_token and secrets.compare_digest(
+            password.encode("utf-8"),
+            cfg.dashboard.auth_token.encode("utf-8"),
+        ):
+            return
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -152,7 +191,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     # -------------------------------------------------------------------------
 
     @app.get("/", response_class=HTMLResponse)
-    async def overview(
+    def overview(
         request: Request,
         db: Database = Depends(get_db),
         _auth: None = Depends(require_auth),
@@ -176,20 +215,28 @@ def create_app(config: Config | None = None) -> FastAPI:
                     details = check.get("details", {})
                     selftest = details.get("selftest", {})
                     error_count = selftest.get("error_count", 0)
-                    warnings = details.get("warnings", [])
                     issues = details.get("issues", [])
+
+                    # Warnings not covered by the ack system: the check
+                    # provides them structured; fall back to string matching
+                    # for runs stored by older versions
+                    if "other_warnings" in details:
+                        non_ack_warnings = details["other_warnings"]
+                    else:
+                        non_ack_warnings = [
+                            w for w in details.get("warnings", [])
+                            if "error log" not in w.lower() and "error(s)" not in w.lower()
+                        ]
 
                     # Check if this disk's errors are acknowledged
                     ack = smart_acks.get(identifier)
-                    if ack and ack["error_count_acked"] >= error_count and not issues:
-                        # All errors acknowledged and no other issues
-                        # Check if the only warnings are about error log
-                        non_ack_warnings = [
-                            w for w in warnings
-                            if "error log" not in w.lower() and "error(s)" not in w.lower()
-                        ]
-                        if not non_ack_warnings:
-                            check_status = "OK"
+                    if (
+                        ack
+                        and ack["error_count_acked"] >= error_count
+                        and not issues
+                        and not non_ack_warnings
+                    ):
+                        check_status = "OK"
 
                 # Update effective status (worst wins)
                 if check_status == "CRIT":
@@ -202,9 +249,9 @@ def create_app(config: Config | None = None) -> FastAPI:
             latest_run["effective_status"] = effective_status
 
         return templates.TemplateResponse(
+            request,
             "overview.html",
             {
-                "request": request,
                 "latest_run": latest_run,
                 "open_issues": open_issues,
                 "recent_events": recent_events,
@@ -212,7 +259,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         )
 
     @app.get("/filesystem", response_class=HTMLResponse)
-    async def filesystem_page(
+    def filesystem_page(
         request: Request,
         db: Database = Depends(get_db),
         _auth: None = Depends(require_auth),
@@ -230,15 +277,15 @@ def create_app(config: Config | None = None) -> FastAPI:
             mounts[mount].append(m)
 
         return templates.TemplateResponse(
+            request,
             "filesystem.html",
             {
-                "request": request,
                 "mounts": mounts,
             },
         )
 
     @app.get("/lvm", response_class=HTMLResponse)
-    async def lvm_page(
+    def lvm_page(
         request: Request,
         db: Database = Depends(get_db),
         _auth: None = Depends(require_auth),
@@ -248,16 +295,16 @@ def create_app(config: Config | None = None) -> FastAPI:
         degraded_metrics = db.get_metrics("lvm_degraded", limit=100)
 
         return templates.TemplateResponse(
+            request,
             "lvm.html",
             {
-                "request": request,
                 "sync_metrics": sync_metrics,
                 "degraded_metrics": degraded_metrics,
             },
         )
 
     @app.get("/smart", response_class=HTMLResponse)
-    async def smart_page(
+    def smart_page(
         request: Request,
         db: Database = Depends(get_db),
         _auth: None = Depends(require_auth),
@@ -280,20 +327,16 @@ def create_app(config: Config | None = None) -> FastAPI:
         for m in disk_info_metrics:
             disk = m["labels"].get("disk", "unknown")
             if disk not in disk_infos and m.get("value_text"):
-                try:
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
                     disk_infos[disk] = json.loads(m["value_text"])
-                except (json.JSONDecodeError, TypeError):
-                    pass
 
         # Parse self-test results (latest per disk)
         disk_selftests: dict[str, dict] = {}
         for m in selftest_metrics:
             disk = m["labels"].get("disk", "unknown")
             if disk not in disk_selftests and m.get("value_text"):
-                try:
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
                     disk_selftests[disk] = json.loads(m["value_text"])
-                except (json.JSONDecodeError, TypeError):
-                    pass
 
         # Get all acknowledgments
         disk_acks = db.get_all_smart_acks()
@@ -328,15 +371,15 @@ def create_app(config: Config | None = None) -> FastAPI:
             disks[disk]["attrs"][attr].append(m)
 
         return templates.TemplateResponse(
+            request,
             "smart.html",
             {
-                "request": request,
                 "disks": disks,
             },
         )
 
     @app.get("/events", response_class=HTMLResponse)
-    async def events_page(
+    def events_page(
         request: Request,
         severity: str | None = None,
         event_type: str | None = None,
@@ -344,8 +387,8 @@ def create_app(config: Config | None = None) -> FastAPI:
         _auth: None = Depends(require_auth),
     ) -> HTMLResponse:
         """Events timeline page."""
-        severity_filter = Status(severity) if severity else None
-        type_filter = EventType(event_type) if event_type else None
+        severity_filter = _parse_enum(Status, severity, "severity")
+        type_filter = _parse_enum(EventType, event_type, "event_type")
 
         events = db.get_events(
             severity=severity_filter,
@@ -354,9 +397,9 @@ def create_app(config: Config | None = None) -> FastAPI:
         )
 
         return templates.TemplateResponse(
+            request,
             "events.html",
             {
-                "request": request,
                 "events": events,
                 "severity_filter": severity,
                 "type_filter": event_type,
@@ -368,7 +411,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     # -------------------------------------------------------------------------
 
     @app.get("/api/status/current")
-    async def api_current_status(
+    def api_current_status(
         db: Database = Depends(get_db),
         _auth: None = Depends(require_auth),
     ) -> dict[str, Any]:
@@ -379,11 +422,11 @@ def create_app(config: Config | None = None) -> FastAPI:
         return {
             "latest_run": latest,
             "open_issues": open_issues,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": utcnow().isoformat(),
         }
 
     @app.get("/api/runs")
-    async def api_runs(
+    def api_runs(
         limit: int = Query(default=50, le=500),
         offset: int = Query(default=0, ge=0),
         db: Database = Depends(get_db),
@@ -393,7 +436,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         return db.get_runs(limit=limit, offset=offset)
 
     @app.get("/api/metrics")
-    async def api_metrics(
+    def api_metrics(
         name: str,
         from_ts: str | None = None,
         to_ts: str | None = None,
@@ -402,8 +445,8 @@ def create_app(config: Config | None = None) -> FastAPI:
         _auth: None = Depends(require_auth),
     ) -> list[dict[str, Any]]:
         """Query metrics by name."""
-        from_dt = datetime.fromisoformat(from_ts) if from_ts else None
-        to_dt = datetime.fromisoformat(to_ts) if to_ts else None
+        from_dt = _parse_query_ts(from_ts, "from_ts")
+        to_dt = _parse_query_ts(to_ts, "to_ts")
 
         return db.get_metrics(
             name=name,
@@ -413,7 +456,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         )
 
     @app.get("/api/events")
-    async def api_events(
+    def api_events(
         from_ts: str | None = None,
         to_ts: str | None = None,
         severity: str | None = None,
@@ -423,10 +466,10 @@ def create_app(config: Config | None = None) -> FastAPI:
         _auth: None = Depends(require_auth),
     ) -> list[dict[str, Any]]:
         """Query events."""
-        from_dt = datetime.fromisoformat(from_ts) if from_ts else None
-        to_dt = datetime.fromisoformat(to_ts) if to_ts else None
-        sev = Status(severity) if severity else None
-        et = EventType(event_type) if event_type else None
+        from_dt = _parse_query_ts(from_ts, "from_ts")
+        to_dt = _parse_query_ts(to_ts, "to_ts")
+        sev = _parse_enum(Status, severity, "severity")
+        et = _parse_enum(EventType, event_type, "event_type")
 
         return db.get_events(
             from_ts=from_dt,
@@ -437,7 +480,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         )
 
     @app.get("/api/issues/open")
-    async def api_open_issues(
+    def api_open_issues(
         db: Database = Depends(get_db),
         _auth: None = Depends(require_auth),
     ) -> list[dict[str, Any]]:
@@ -449,7 +492,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     # -------------------------------------------------------------------------
 
     @app.post("/api/smart/acknowledge")
-    async def api_ack_smart_errors(
+    def api_ack_smart_errors(
         req: AckRequest,
         db: Database = Depends(get_db),
         _auth: None = Depends(require_auth),
@@ -484,7 +527,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         return {"status": "ok", "disk": req.disk}
 
     @app.delete("/api/smart/acknowledge/{disk:path}")
-    async def api_delete_smart_ack(
+    def api_delete_smart_ack(
         disk: str,
         db: Database = Depends(get_db),
         _auth: None = Depends(require_auth),
@@ -494,7 +537,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         return {"status": "ok" if deleted else "not_found", "disk": disk}
 
     @app.get("/api/smart/acknowledgments")
-    async def api_get_smart_acks(
+    def api_get_smart_acks(
         db: Database = Depends(get_db),
         _auth: None = Depends(require_auth),
     ) -> dict[str, dict[str, Any]]:
@@ -502,7 +545,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         return db.get_all_smart_acks()
 
     @app.get("/health")
-    async def health() -> dict[str, str]:
+    def health() -> dict[str, str]:
         """Health check endpoint (no auth required)."""
         return {"status": "ok"}
 

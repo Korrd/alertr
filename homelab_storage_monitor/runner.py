@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from homelab_storage_monitor.alerts.email import EmailAlerter
 from homelab_storage_monitor.alerts.slack import SlackAlerter
@@ -15,6 +14,7 @@ from homelab_storage_monitor.config import Config
 from homelab_storage_monitor.db import Database
 from homelab_storage_monitor.models import CheckResult, Metric, RunResult, Status
 from homelab_storage_monitor.state import StateManager
+from homelab_storage_monitor.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class Runner:
 
     def run_checks(self) -> RunResult:
         """Execute all checks and process results."""
-        ts_start = datetime.now()
+        ts_start = utcnow()
         all_results: list[CheckResult] = []
         all_metrics: list[Metric] = []
 
@@ -74,7 +74,7 @@ class Runner:
                     )
                 )
 
-        ts_end = datetime.now()
+        ts_end = utcnow()
 
         # Build run result
         run_result = RunResult(
@@ -128,28 +128,40 @@ class Runner:
             self._send_recovery_alerts(run.hostname, recovery_results)
 
     def _send_alerts(self, run: RunResult, results: list[CheckResult]) -> None:
-        """Send alerts for problem results."""
-        # Create a run result with only the alertable checks for context
-        # but include all results for full picture
+        """Send alerts for problem results.
+
+        The alert body includes the full run for context; last_alert_ts is
+        only stamped when at least one backend delivers, so a failed send is
+        retried on the next run instead of being silently lost.
+        """
         dashboard_url = self.config.dashboard.base_url
+        any_success = False
 
         # Slack
         if self.slack_alerter:
             try:
                 success = self.slack_alerter.send(run, dashboard_url=dashboard_url)
-                self.state_manager.record_alert_sent(results, "slack", success)
             except Exception as e:
                 logger.error(f"Slack alert failed: {e}")
-                self.state_manager.record_alert_sent(results, "slack", False)
+                success = False
+            any_success = any_success or success
+            self.state_manager.record_alert_sent(results, "slack", success)
 
         # Email
         if self.email_alerter:
             try:
                 success = self.email_alerter.send(run, dashboard_url=dashboard_url)
-                self.state_manager.record_alert_sent(results, "email", success)
             except Exception as e:
                 logger.error(f"Email alert failed: {e}")
-                self.state_manager.record_alert_sent(results, "email", False)
+                success = False
+            any_success = any_success or success
+            self.state_manager.record_alert_sent(results, "email", success)
+
+        # With no backends configured there is nothing to retry; mark the
+        # episode as handled so it doesn't stay pending forever.
+        no_backends = self.slack_alerter is None and self.email_alerter is None
+        if any_success or no_backends:
+            self.state_manager.mark_alerted(results)
 
     def _send_recovery_alerts(
         self,

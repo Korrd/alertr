@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from datetime import datetime
 from typing import Any
 
 from homelab_storage_monitor.checks.base import BaseCheck

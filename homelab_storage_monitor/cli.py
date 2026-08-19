@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 
 from homelab_storage_monitor import __version__
-from homelab_storage_monitor.config import Config, load_config
+from homelab_storage_monitor.config import load_config
 from homelab_storage_monitor.db import Database
 
 
@@ -61,7 +61,9 @@ def run(ctx: click.Context, config: Path | None, loop: bool) -> None:
         logger.info(
             f"Starting collector loop (interval: {cfg.scheduler.interval_seconds}s)"
         )
+        last_retention: float | None = None
         while True:
+            loop_start = time.monotonic()
             try:
                 result = runner.run_checks()
                 logger.info(
@@ -71,7 +73,20 @@ def run(ctx: click.Context, config: Path | None, loop: bool) -> None:
             except Exception as e:
                 logger.exception(f"Check run failed: {e}")
 
-            time.sleep(cfg.scheduler.interval_seconds)
+            # Daily retention cleanup so the database doesn't grow unbounded
+            if last_retention is None or time.monotonic() - last_retention >= 86400:
+                try:
+                    deleted = db.run_retention(cfg)
+                    total = sum(deleted.values())
+                    if total:
+                        logger.info(f"Retention cleanup deleted {total} rows: {deleted}")
+                    last_retention = time.monotonic()
+                except Exception as e:
+                    logger.error(f"Retention cleanup failed: {e}")
+
+            # Subtract check duration so the schedule doesn't drift
+            elapsed = time.monotonic() - loop_start
+            time.sleep(max(1.0, cfg.scheduler.interval_seconds - elapsed))
     else:
         result = runner.run_checks()
         click.echo(f"Overall status: {result.overall_status}")
@@ -148,6 +163,7 @@ def test_alerts(
     from homelab_storage_monitor.alerts.email import EmailAlerter
     from homelab_storage_monitor.alerts.slack import SlackAlerter
     from homelab_storage_monitor.models import CheckResult, RunResult, Status
+    from homelab_storage_monitor.timeutil import utcnow
 
     cfg = load_config(config)
     logger = logging.getLogger("hsm.test-alerts")
@@ -155,8 +171,8 @@ def test_alerts(
     # Create a fake test result
     test_result = RunResult(
         hostname=cfg.target.get_hostname(),
-        ts_start=__import__("datetime").datetime.now(),
-        ts_end=__import__("datetime").datetime.now(),
+        ts_start=utcnow(),
+        ts_end=utcnow(),
         check_results=[
             CheckResult(
                 name="test_check",
@@ -207,7 +223,6 @@ def test_alerts(
 def migrate_db(ctx: click.Context, config: Path | None) -> None:
     """Initialize or migrate the database schema."""
     cfg = load_config(config)
-    logger = logging.getLogger("hsm.migrate-db")
 
     db_path = Path(cfg.history.db_path)
     existed = db_path.exists()
