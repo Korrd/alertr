@@ -440,6 +440,13 @@ def build_smart_data(db: Database, config: Config, range_key: str) -> dict[str, 
         if value == int(value):
             value = int(value)
 
+        series = db.get_metric_series(
+            "smart_attr_raw",
+            {"disk": disk, "attr": str(attr_id)},
+            since,
+            bucket,
+        )
+
         attr_data = {
             "id": attr_id,
             "is_nvme": attr_id >= 1000,
@@ -449,16 +456,10 @@ def build_smart_data(db: Database, config: Config, range_key: str) -> dict[str, 
             "value": value,
             "unit": _attr_unit(attr_id),
             "value_class": _attr_value_class(attr_id, v["value_num"], config),
+            "series": _series_payload(series),
         }
 
         if attr_id in KEY_ATTR_IDS:
-            series = db.get_metric_series(
-                "smart_attr_raw",
-                {"disk": disk, "attr": str(attr_id)},
-                since,
-                bucket,
-            )
-            attr_data["series"] = _series_payload(series)
             entry["key_attrs"].append(attr_data)
         else:
             entry["other_attrs"].append(attr_data)

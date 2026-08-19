@@ -2,6 +2,29 @@
 
 {% block title %}SMART{% endblock %}
 
+{% macro attr_card(slug, attr) %}
+<div class="mini-card">
+    <div class="tooltip-wrapper">
+        <div class="attr-name">{{ attr.name }}</div>
+        <div class="attr-id">{% if attr.is_nvme %}NVMe{% else %}ID {{ attr.id }}{% endif %}</div>
+        <div class="tooltip-content">
+            <div class="tooltip-title">{{ attr.name }}</div>
+            <div class="tooltip-id">{% if attr.is_nvme %}NVMe Health Metric{% else %}SMART Attribute #{{ attr.id }}{% endif %}</div>
+            <div class="tooltip-desc">{{ attr.description }}</div>
+            <span class="tooltip-importance importance-{{ attr.importance }}">
+                {{ attr.importance }} importance
+            </span>
+        </div>
+    </div>
+    <div class="attr-value {{ attr.value_class }}">
+        {{ attr.value }}{{ attr.unit }}
+    </div>
+    <div class="chart-container-small">
+        <canvas id="attr-{{ slug }}-{{ attr.id }}"></canvas>
+    </div>
+</div>
+{% endmacro %}
+
 {% block content %}
 <div class="page-header">
     <h1>SMART Disk Health</h1>
@@ -94,26 +117,7 @@
         <h4>Health Indicators</h4>
         <div class="grid">
             {% for attr in data.key_attrs %}
-            <div class="mini-card">
-                <div class="tooltip-wrapper">
-                    <div class="attr-name">{{ attr.name }}</div>
-                    <div class="attr-id">{% if attr.is_nvme %}NVMe{% else %}ID {{ attr.id }}{% endif %}</div>
-                    <div class="tooltip-content">
-                        <div class="tooltip-title">{{ attr.name }}</div>
-                        <div class="tooltip-id">{% if attr.is_nvme %}NVMe Health Metric{% else %}SMART Attribute #{{ attr.id }}{% endif %}</div>
-                        <div class="tooltip-desc">{{ attr.description }}</div>
-                        <span class="tooltip-importance importance-{{ attr.importance }}">
-                            {{ attr.importance }} importance
-                        </span>
-                    </div>
-                </div>
-                <div class="attr-value {{ attr.value_class }}">
-                    {{ attr.value }}{{ attr.unit }}
-                </div>
-                <div class="chart-container-small">
-                    <canvas id="attr-{{ data.slug }}-{{ attr.id }}"></canvas>
-                </div>
-            </div>
+            {{ attr_card(data.slug, attr) }}
             {% endfor %}
         </div>
         {% endif %}
@@ -126,31 +130,13 @@
         {% endif %}
 
         {% if data.other_attrs %}
-        <details class="attr-details">
+        <details class="attr-details" id="attrs-{{ data.slug }}">
             <summary>All attributes ({{ data.other_attrs | length }} more)</summary>
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Attribute</th>
-                        <th>Value</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for attr in data.other_attrs %}
-                    <tr>
-                        <td>{% if attr.is_nvme %}NVMe{% else %}{{ attr.id }}{% endif %}</td>
-                        <td>
-                            {{ attr.name }}
-                            {% if attr.description %}
-                            <span class="text-muted attr-desc-inline">— {{ attr.description }}</span>
-                            {% endif %}
-                        </td>
-                        <td class="{{ attr.value_class }}">{{ attr.value }}{{ attr.unit }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <div class="grid">
+                {% for attr in data.other_attrs %}
+                {{ attr_card(data.slug, attr) }}
+                {% endfor %}
+            </div>
         </details>
         {% endif %}
 
@@ -444,5 +430,31 @@ const HSM_SPARK_COLORS = {
     });
     {% endif %}
 {% endfor %}
+
+// Sparklines inside the collapsed "All attributes" sections are created on
+// first expand: hidden canvases have zero size at page load.
+const HSM_DEFERRED_CHARTS = {
+{% for disk, data in disks.items() %}
+    'attrs-{{ data.slug }}': [
+    {% for attr in data.other_attrs %}
+        {
+            id: 'attr-{{ data.slug }}-{{ attr.id }}',
+            series: {{ attr.series | tojson }},
+            color: HSM_SPARK_COLORS['{{ attr.value_class }}']
+        },
+    {% endfor %}
+    ],
+{% endfor %}
+};
+
+document.querySelectorAll('details.attr-details').forEach(function (el) {
+    el.addEventListener('toggle', function () {
+        if (!el.open) return;
+        (HSM_DEFERRED_CHARTS[el.id] || []).forEach(function (c) {
+            hsmSparkline(c.id, c.series, c.color);
+        });
+        delete HSM_DEFERRED_CHARTS[el.id];
+    });
+});
 </script>
 {% endblock %}

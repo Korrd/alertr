@@ -1149,8 +1149,8 @@ body {
     color: var(--color-text);
 }
 
-.attr-desc-inline {
-    font-size: 0.8rem;
+.attr-details .grid {
+    margin-top: 0.75rem;
 }
 
 .chart-container-medium {

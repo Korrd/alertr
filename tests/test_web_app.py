@@ -264,6 +264,14 @@ class TestDataPages:
         assert "All attributes" in text  # attr 4 is collapsed inventory
         assert "Temperature" in text
 
+    def test_collapsed_attrs_have_lazy_charts(self, seeded):
+        text = TestClient(seeded).get("/smart").text
+        # attr 4 lives in the collapsed section but still gets a canvas and a
+        # series payload, chart-rendered on first expand
+        assert 'id="attr--dev-sda-4"' in text
+        assert "HSM_DEFERRED_CHARTS" in text
+        assert "'attrs--dev-sda'" in text
+
     def test_lvm_page_current_state(self, seeded):
         text = TestClient(seeded).get("/lvm").text
         assert "RAID/RAID" in text
