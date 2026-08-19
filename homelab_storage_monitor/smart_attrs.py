@@ -101,6 +101,13 @@ SMART_ATTRS: dict[int, SmartAttr] = {
         description="Uncorrected read errors reported to the OS.",
         importance=Importance.MEDIUM,
     ),
+    177: SmartAttr(
+        id=177,
+        name="Wear Leveling Count",
+        description="SSD wear indicator (common on Samsung drives). The normalized value counts down from 100 toward 0 as flash wears out; raw value is program/erase cycles.",
+        importance=Importance.HIGH,
+        higher_is_worse=False,  # raw cycle count grows on any healthy SSD
+    ),
     183: SmartAttr(
         id=183,
         name="SATA Downshift Count",

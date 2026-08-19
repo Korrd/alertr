@@ -264,6 +264,33 @@ class TestDataPages:
         assert "All attributes" in text  # attr 4 is collapsed inventory
         assert "Temperature" in text
 
+    def test_attr_split_follows_importance_taxonomy(self, config):
+        from homelab_storage_monitor.web.app import build_smart_data
+
+        app = create_app(config)
+        db = app.state.db
+        now = utcnow()
+        db.save_metrics([
+            Metric(name="smart_attr_raw", value_num=val,
+                   labels={"disk": "/dev/sda", "attr": attr}, ts=now)
+            for attr, val in [("5", 0.0), ("10", 2.0), ("4", 51.0),
+                              ("194", 40.0), ("177", 1200.0)]
+        ])
+
+        disks = build_smart_data(db, config, "7d")
+        key_ids = {a["id"] for a in disks["/dev/sda"]["key_attrs"]}
+        other_ids = {a["id"] for a in disks["/dev/sda"]["other_attrs"]}
+
+        # CRITICAL (5 realloc), HIGH (10 spin retry, 177 wear leveling), and
+        # temperature (194) are prominent; LOW (4 start/stop) is collapsed
+        assert {5, 10, 177, 194} <= key_ids
+        assert other_ids == {4}
+
+        # Wear gauges are not error counters: raw value stays uncolored
+        wear = next(a for a in disks["/dev/sda"]["key_attrs"] if a["id"] == 177)
+        assert wear["value_class"] == "value-normal"
+        assert wear["name"] == "Wear Leveling Count"
+
     def test_collapsed_attrs_have_lazy_charts(self, seeded):
         text = TestClient(seeded).get("/smart").text
         # attr 4 lives in the collapsed section but still gets a canvas and a

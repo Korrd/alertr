@@ -43,11 +43,12 @@ STATIC_DIR = PACKAGE_DIR / "static"
 # last known state (behind the staleness banner) if the collector stops
 LATEST_WINDOW = timedelta(days=30)
 
-# Health-critical SMART attributes shown prominently with trend charts;
-# everything else is collapsed into the "all attributes" list
-KEY_ATTR_IDS = {5, 177, 187, 188, 190, 194, 197, 198, 199, 231, 233,
-                1001, 1002, 1003, 1004, 1010}
+# The Health Indicators section shows every attribute the taxonomy rates
+# CRITICAL or HIGH importance, plus these (temperature is MEDIUM in the
+# taxonomy but the collector alerts on it); the rest collapse into the
+# "all attributes" section
 TEMP_ATTR_IDS = (194, 190, 1001)  # preference order
+ALWAYS_KEY_ATTR_IDS = set(TEMP_ATTR_IDS)
 
 IMPORTANCE_RANK = {
     Importance.CRITICAL: 0,
@@ -459,7 +460,11 @@ def build_smart_data(db: Database, config: Config, range_key: str) -> dict[str, 
             "series": _series_payload(series),
         }
 
-        if attr_id in KEY_ATTR_IDS:
+        is_key = (
+            info.importance in (Importance.CRITICAL, Importance.HIGH)
+            or attr_id in ALWAYS_KEY_ATTR_IDS
+        )
+        if is_key:
             entry["key_attrs"].append(attr_data)
         else:
             entry["other_attrs"].append(attr_data)
