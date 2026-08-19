@@ -7,7 +7,7 @@ import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,18 @@ from homelab_storage_monitor.timeutil import parse_ts, utcnow
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+
+# Timestamp columns rewritten by the v4 legacy-timezone migration
+V4_TS_COLUMNS: list[tuple[str, list[str]]] = [
+    ("metrics", ["ts"]),
+    ("events", ["ts"]),
+    ("runs", ["ts_start", "ts_end"]),
+    ("sync_history", ["ts"]),
+    ("smart_history", ["ts"]),
+    ("issue_states", ["last_alert_ts", "last_change_ts"]),
+    ("smart_acknowledgments", ["acked_at"]),
+]
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -192,11 +203,48 @@ class Database:
             # per-series dashboard queries; nothing else to do here
             from_version = 3
 
+        if from_version < 4:
+            self._migrate_naive_timestamps(conn)
+            from_version = 4
+
         conn.execute(
             "UPDATE schema_version SET version = ?",
             (SCHEMA_VERSION,),
         )
         logger.info(f"Migrated database from version {from_version} to {SCHEMA_VERSION}")
+
+    def _migrate_naive_timestamps(self, conn: sqlite3.Connection) -> None:
+        """Rewrite legacy naive local timestamps as aware UTC (v4 migration).
+
+        Rows written before the UTC change carry naive local-time strings.
+        Mixed with the aware strings written since, TEXT ordering breaks
+        around the changeover: charts interleave old and new samples, so
+        monotonic counters appear to run backwards. Convert with the same
+        assumption parse_ts applies on read (naive == the process's local
+        time), which is also the timezone these rows were written in.
+        """
+        total = 0
+        for table, columns in V4_TS_COLUMNS:
+            for column in columns:
+                cur = conn.execute(
+                    f"SELECT rowid, {column} FROM {table} "  # noqa: S608 - fixed identifiers
+                    f"WHERE {column} IS NOT NULL AND {column} NOT LIKE '%+%'"
+                )
+                updates: list[tuple[str, int]] = []
+                for rowid, value in cur.fetchall():
+                    try:
+                        converted = parse_ts(value).astimezone(UTC).isoformat()
+                    except ValueError:
+                        continue
+                    updates.append((converted, rowid))
+                if updates:
+                    conn.executemany(
+                        f"UPDATE {table} SET {column} = ? WHERE rowid = ?",  # noqa: S608
+                        updates,
+                    )
+                    total += len(updates)
+        if total:
+            logger.info(f"Converted {total} legacy local timestamps to UTC")
 
     # -------------------------------------------------------------------------
     # Runs and Check Results

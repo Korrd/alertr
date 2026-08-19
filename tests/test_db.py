@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import timedelta
+from datetime import UTC, timedelta
 
 from homelab_storage_monitor.db import SCHEMA_VERSION, Database
 from homelab_storage_monitor.models import CheckResult, Metric, RunResult, Status
@@ -40,6 +40,59 @@ class TestSchema:
         assert version == SCHEMA_VERSION
         assert "idx_metrics_name_ts" in indexes
         assert "idx_metrics_ts_name" not in indexes
+
+
+class TestV4TimestampMigration:
+    def rewind_to_v3(self, path, naive_metric_ts: str, aware_metric_ts: str):
+        conn = sqlite3.connect(str(path))
+        conn.execute(
+            "INSERT INTO metrics (ts, metric_name, labels_json, value_num) VALUES (?, 'poh', '{}', 1.0)",
+            (naive_metric_ts,),
+        )
+        conn.execute(
+            "INSERT INTO metrics (ts, metric_name, labels_json, value_num) VALUES (?, 'poh', '{}', 2.0)",
+            (aware_metric_ts,),
+        )
+        conn.execute("UPDATE schema_version SET version = 3")
+        conn.commit()
+        conn.close()
+
+    def test_naive_rows_become_utc_and_ordering_heals(self, tmp_path):
+        from datetime import datetime
+
+        path = tmp_path / "old.sqlite"
+        Database(path)
+
+        # A legacy naive local-time row that in real time precedes the aware
+        # UTC row written one hour later
+        naive_local = datetime.now().replace(microsecond=0)
+        real_utc = naive_local.astimezone(UTC)
+        later_aware = (real_utc + timedelta(hours=1)).isoformat()
+        self.rewind_to_v3(path, naive_local.isoformat(), later_aware)
+
+        db = Database(path)  # reopening runs the migration
+        with db.connection() as conn:
+            rows = conn.execute(
+                "SELECT ts, value_num FROM metrics ORDER BY ts ASC"
+            ).fetchall()
+
+        # The legacy row is now aware UTC, equal to its real instant
+        assert all("+" in r["ts"] for r in rows)
+        assert datetime.fromisoformat(rows[0]["ts"]) == real_utc
+        # TEXT ordering now matches real time: legacy row first
+        assert [r["value_num"] for r in rows] == [1.0, 2.0]
+
+    def test_aware_rows_are_untouched(self, tmp_path):
+        path = tmp_path / "old.sqlite"
+        Database(path)
+        aware = utcnow().isoformat()
+        self.rewind_to_v3(path, aware, aware)
+
+        Database(path)
+        conn = sqlite3.connect(str(path))
+        rows = conn.execute("SELECT ts FROM metrics").fetchall()
+        conn.close()
+        assert all(ts == aware for (ts,) in rows)
 
 
 class TestKvStore:
