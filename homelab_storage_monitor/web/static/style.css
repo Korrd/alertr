@@ -935,3 +935,235 @@ body {
 [data-theme="dark"] .btn-primary:hover {
     background: #228be6;
 }
+
+/* ============================================
+   Staleness banner
+   ============================================ */
+.stale-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    background: rgba(218, 160, 56, 0.12); /* fallback for older browsers */
+    background: color-mix(in srgb, var(--color-warn) 15%, var(--color-card));
+    border: 1px solid var(--color-warn);
+    border-left: 4px solid var(--color-warn);
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.stale-icon {
+    font-size: 1.3rem;
+    line-height: 1.2;
+}
+
+/* ============================================
+   Page header with range selector
+   ============================================ */
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.range-selector {
+    display: inline-flex;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.range-link {
+    padding: 0.35rem 0.8rem;
+    font-size: 0.85rem;
+    text-decoration: none;
+    color: var(--color-muted);
+    background: var(--color-card);
+    border-right: 1px solid var(--color-border);
+}
+
+.range-link:last-child {
+    border-right: none;
+}
+
+.range-link:hover {
+    background: var(--color-hover);
+}
+
+.range-link.active {
+    background: var(--color-primary);
+    color: white;
+}
+
+/* ============================================
+   Overview summary tiles
+   ============================================ */
+.tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-left: 4px solid var(--color-ok);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem;
+    box-shadow: var(--shadow);
+    text-decoration: none;
+    color: var(--color-text);
+    transition: transform 0.1s ease;
+}
+
+.tile:hover {
+    transform: translateY(-2px);
+}
+
+.tile-warn { border-left-color: var(--color-warn); }
+.tile-crit { border-left-color: var(--color-crit); }
+.tile-unknown { border-left-color: var(--color-unknown); }
+
+.tile-value {
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.tile-value-sub {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--color-muted);
+}
+
+.tile-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-muted);
+}
+
+.tile-detail {
+    font-size: 0.8rem;
+    color: var(--color-muted);
+}
+
+/* ============================================
+   Clickable check rows / ack hint
+   ============================================ */
+.row-link {
+    cursor: pointer;
+}
+
+.ack-hint {
+    font-size: 0.7rem;
+    color: var(--color-muted);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 0.05rem 0.3rem;
+    margin-left: 0.35rem;
+    vertical-align: middle;
+}
+
+/* ============================================
+   Filesystem summary: usage bar + projection
+   ============================================ */
+.fs-summary {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.fs-facts {
+    flex: 1;
+    min-width: 260px;
+}
+
+.usage-bar-track {
+    position: relative;
+    height: 10px;
+    background: var(--color-hover);
+    border-radius: 5px;
+    overflow: visible;
+    margin-bottom: 0.4rem;
+}
+
+.usage-bar-fill {
+    height: 100%;
+    border-radius: 5px;
+    background: var(--color-primary);
+}
+
+.usage-bar-fill.fill-warn { background: var(--color-warn); }
+.usage-bar-fill.fill-crit { background: var(--color-crit); }
+
+.usage-bar-mark {
+    position: absolute;
+    top: -3px;
+    width: 2px;
+    height: 16px;
+    background: var(--color-warn);
+    opacity: 0.8;
+}
+
+.usage-bar-mark.mark-crit { background: var(--color-crit); }
+
+.fs-facts-row {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.fs-projection {
+    color: var(--color-muted);
+}
+
+/* ============================================
+   SMART: collapsed attribute inventory, temp chart
+   ============================================ */
+.attr-details {
+    margin-top: 1rem;
+}
+
+.attr-details summary {
+    cursor: pointer;
+    color: var(--color-muted);
+    font-size: 0.9rem;
+    padding: 0.35rem 0;
+    user-select: none;
+}
+
+.attr-details summary:hover {
+    color: var(--color-text);
+}
+
+.attr-desc-inline {
+    font-size: 0.8rem;
+}
+
+.chart-container-medium {
+    height: 180px;
+    position: relative;
+}
+
+/* Anchored cards shouldn't hide under the sticky navbar */
+.card[id], section[id] {
+    scroll-margin-top: 4.5rem;
+}
+
+/* ============================================
+   Event type: self-test started
+   ============================================ */
+.type-selftest_started { background: #ede7f6; color: #4527a0; }

@@ -25,7 +25,7 @@ from homelab_storage_monitor.timeutil import parse_ts, utcnow
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS kv_store (
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_metrics_name_ts ON metrics(metric_name, ts);
+CREATE INDEX IF NOT EXISTS idx_metrics_name_labels_ts ON metrics(metric_name, labels_json, ts);
 CREATE INDEX IF NOT EXISTS idx_events_ts_severity ON events(ts, severity);
 CREATE INDEX IF NOT EXISTS idx_check_results_run_id ON check_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_ts ON runs(ts_start);
@@ -185,6 +186,11 @@ class Database:
             # drop the old index whose column order didn't match the queries
             conn.execute("DROP INDEX IF EXISTS idx_metrics_ts_name")
             from_version = 2
+
+        if from_version < 3:
+            # idx_metrics_name_labels_ts (created by SCHEMA_SQL) backs the
+            # per-series dashboard queries; nothing else to do here
+            from_version = 3
 
         conn.execute(
             "UPDATE schema_version SET version = ?",
@@ -351,6 +357,76 @@ class Database:
                 for row in cur
             ]
 
+    def get_metric_series(
+        self,
+        name: str,
+        labels: dict[str, str],
+        since: datetime,
+        bucket_seconds: int = 900,
+    ) -> list[dict[str, Any]]:
+        """Get one metric series, downsampled into time buckets.
+
+        Returns [{ts, value_num}] in ascending time order, averaging values
+        within each bucket so long ranges stay at a chartable point count.
+        """
+        labels_json = json.dumps(labels, sort_keys=True)
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT MAX(ts) AS ts, AVG(value_num) AS value_num
+                FROM metrics
+                WHERE metric_name = ? AND labels_json = ? AND ts >= ?
+                  AND value_num IS NOT NULL
+                GROUP BY CAST(strftime('%s', ts) AS INTEGER) / ?
+                ORDER BY ts ASC
+                """,
+                (name, labels_json, since.isoformat(), max(1, bucket_seconds)),
+            )
+            return [{"ts": row["ts"], "value_num": row["value_num"]} for row in cur]
+
+    def get_metric_label_sets(self, name: str, since: datetime) -> list[dict[str, str]]:
+        """List the distinct label sets a metric has reported since a time."""
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT DISTINCT labels_json FROM metrics
+                WHERE metric_name = ? AND ts >= ?
+                """,
+                (name, since.isoformat()),
+            )
+            return [json.loads(row["labels_json"]) for row in cur]
+
+    def get_latest_metric_values(
+        self,
+        name: str,
+        since: datetime,
+    ) -> list[dict[str, Any]]:
+        """Get the most recent value of every series of a metric.
+
+        Returns [{ts, labels, value_num, value_text}], one entry per label
+        set seen since the given time.
+        """
+        with self.connection() as conn:
+            # SQLite guarantees bare columns come from the MAX(ts) row
+            cur = conn.execute(
+                """
+                SELECT labels_json, value_num, value_text, MAX(ts) AS ts
+                FROM metrics
+                WHERE metric_name = ? AND ts >= ?
+                GROUP BY labels_json
+                """,
+                (name, since.isoformat()),
+            )
+            return [
+                {
+                    "ts": row["ts"],
+                    "labels": json.loads(row["labels_json"]),
+                    "value_num": row["value_num"],
+                    "value_text": row["value_text"],
+                }
+                for row in cur
+            ]
+
     # -------------------------------------------------------------------------
     # Events
     # -------------------------------------------------------------------------
@@ -380,6 +456,7 @@ class Database:
         to_ts: datetime | None = None,
         severity: Status | None = None,
         event_type: EventType | None = None,
+        source: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """Query events with optional filters."""
@@ -401,6 +478,10 @@ class Database:
         if event_type:
             query += " AND event_type = ?"
             params.append(str(event_type))
+
+        if source:
+            query += " AND source = ?"
+            params.append(source)
 
         query += " ORDER BY ts DESC LIMIT ?"
         params.append(limit)

@@ -14,6 +14,7 @@
                 <option value="OK" {% if severity_filter == 'OK' %}selected{% endif %}>OK</option>
                 <option value="WARN" {% if severity_filter == 'WARN' %}selected{% endif %}>WARN</option>
                 <option value="CRIT" {% if severity_filter == 'CRIT' %}selected{% endif %}>CRIT</option>
+                <option value="UNKNOWN" {% if severity_filter == 'UNKNOWN' %}selected{% endif %}>UNKNOWN</option>
             </select>
         </label>
         <label>
@@ -23,6 +24,7 @@
                 <option value="state_change" {% if type_filter == 'state_change' %}selected{% endif %}>State Change</option>
                 <option value="alert_sent" {% if type_filter == 'alert_sent' %}selected{% endif %}>Alert Sent</option>
                 <option value="recovery" {% if type_filter == 'recovery' %}selected{% endif %}>Recovery</option>
+                <option value="selftest_started" {% if type_filter == 'selftest_started' %}selected{% endif %}>Self-Test Started</option>
                 <option value="error" {% if type_filter == 'error' %}selected{% endif %}>Error</option>
             </select>
         </label>
@@ -45,7 +47,7 @@
         <tbody>
             {% for event in events %}
             <tr>
-                <td class="nowrap">{{ event.ts }}</td>
+                <td class="nowrap">{{ event.ts | local_ts }}</td>
                 <td>
                     <span class="event-type type-{{ event.event_type }}">
                         {{ event.event_type }}

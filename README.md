@@ -50,9 +50,12 @@
 - **Error Acknowledgment** – Suppress known issues with notes and audit trail
 
 ### 📊 Web Dashboard
-- **Real-time Status** – At-a-glance system health overview
-- **Historical Charts** – Track trends over time
+- **Real-time Status** – At-a-glance overview with summary tiles, auto-refreshing when a new check completes
+- **Staleness Detection** – A prominent banner warns when the collector stops reporting, so old data is never mistaken for current health
+- **Historical Charts** – Per-series trends with selectable time ranges (24h / 7d / 30d / 90d) and threshold lines
+- **Capacity Planning** – "Full in ≈N days at current rate" projections per filesystem
 - **Event Timeline** – Complete audit trail of all events
+- **Prometheus Export** – `/metrics` endpoint for Grafana or any Prometheus stack
 - **Dark/Light/Auto Theme** – Easy on the eyes, any time of day
 - **Mobile Responsive** – Check on your storage from anywhere
 
@@ -268,6 +271,8 @@ hsm retention --config /path/to/config.yaml --vacuum
 | `GET /smart` | SMART disk health page |
 | `GET /events` | Event timeline |
 
+The filesystem, LVM, and SMART pages accept `?range=24h|7d|30d|90d` to set the chart window.
+
 </details>
 
 <details>
@@ -284,6 +289,7 @@ hsm retention --config /path/to/config.yaml --vacuum
 | `GET /api/smart/acknowledgments` | List all SMART acknowledgments |
 | `POST /api/smart/acknowledge` | Acknowledge SMART errors for a disk |
 | `DELETE /api/smart/acknowledge/{disk}` | Remove acknowledgment for a disk |
+| `GET /metrics` | Prometheus text exposition (current state, check statuses, staleness) |
 | `GET /health` | Health check (no auth) |
 
 </details>

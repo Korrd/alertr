@@ -3,27 +3,70 @@
 {% block title %}LVM RAID{% endblock %}
 
 {% block content %}
-<h1>LVM RAID Status</h1>
+<div class="page-header">
+    <h1>LVM RAID Status</h1>
+    <nav class="range-selector">
+        {% for r in ranges %}
+        <a href="?range={{ r }}" class="range-link {% if r == range_key %}active{% endif %}">{{ r }}</a>
+        {% endfor %}
+    </nav>
+</div>
 
-{% if sync_metrics or degraded_metrics %}
-<section class="card">
-    <h3>Sync Percentage</h3>
-    {% if sync_metrics %}
-    <div class="metric-current">
-        <span class="metric-value">{{ "%.1f" | format(sync_metrics[0].value_num) }}%</span>
-        <span class="metric-label">Current Sync</span>
+{% if current or volumes %}
+
+{% if current %}
+{% set d = current.details or {} %}
+<section class="card status-card status-{{ current.status | lower }}">
+    <div class="disk-header">
+        <div class="disk-title">
+            <h3>{{ d.vg or '?' }}/{{ d.lv or '?' }}</h3>
+            <span class="status-badge badge-{{ current.status | lower }}">{{ current.status }}</span>
+        </div>
+        <div class="disk-info">
+            <div class="disk-info-item">
+                <span class="disk-info-label">Type</span>
+                <span class="disk-info-value">{{ d.segtype or '—' }}</span>
+            </div>
+            <div class="disk-info-item">
+                <span class="disk-info-label">Sync</span>
+                <span class="disk-info-value">{{ d.copy_percent or '100' }}%</span>
+            </div>
+            <div class="disk-info-item">
+                <span class="disk-info-label">Health</span>
+                <span class="disk-info-value">{{ d.lv_health or 'ok' }}</span>
+            </div>
+            <div class="disk-info-item">
+                <span class="disk-info-label">Attributes</span>
+                <span class="disk-info-value"><code>{{ d.lv_attr or '—' }}</code></span>
+            </div>
+            {% if d.devices %}
+            <div class="disk-info-item disk-info-wide">
+                <span class="disk-info-label">Devices</span>
+                <span class="disk-info-value"><code>{{ d.devices }}</code></span>
+            </div>
+            {% endif %}
+        </div>
     </div>
+    <p class="text-muted" style="margin-top: 0.75rem;">{{ current.summary }}</p>
+</section>
+{% endif %}
+
+{% for vol in volumes %}
+<section class="card">
+    <h3>Sync History — {{ vol.vg }}/{{ vol.lv }}</h3>
+    {% if vol.series.ts %}
     <div class="chart-container">
-        <canvas id="sync-chart"></canvas>
+        <canvas id="sync-chart-{{ loop.index }}"></canvas>
     </div>
     {% else %}
-    <p class="text-muted">No LVM sync metrics recorded yet.</p>
+    <p class="text-muted">No sync metrics in this time range.</p>
     {% endif %}
 </section>
+{% endfor %}
 
 <section class="card">
-    <h3>Degraded State History</h3>
-    {% if degraded_metrics %}
+    <h3>State Changes</h3>
+    {% if transitions %}
     <table class="table">
         <thead>
             <tr>
@@ -33,25 +76,27 @@
             </tr>
         </thead>
         <tbody>
-            {% for m in degraded_metrics[:20] %}
+            {% for t in transitions %}
             <tr>
-                <td>{{ m.ts }}</td>
-                <td>{{ m.labels.get('vg', '?') }}/{{ m.labels.get('lv', '?') }}</td>
+                <td class="nowrap">{{ t.ts | local_ts }}</td>
+                <td>{{ t.vg }}/{{ t.lv }}</td>
                 <td>
-                    {% if m.value_num == 0 %}
-                    <span class="status-badge badge-ok">Healthy</span>
-                    {% else %}
+                    {% if t.degraded %}
                     <span class="status-badge badge-crit">Degraded</span>
+                    {% else %}
+                    <span class="status-badge badge-ok">Healthy</span>
                     {% endif %}
+                    {% if t.initial %}<span class="text-muted">(first seen)</span>{% endif %}
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
     {% else %}
-    <p class="text-muted">No degraded state history available.</p>
+    <p class="text-muted">No state changes recorded in the last 90 days.</p>
     {% endif %}
 </section>
+
 {% else %}
 <section class="card">
     <div class="status-notice notice-info">
@@ -75,45 +120,13 @@
 
 {% block scripts %}
 <script>
-(function() {
-    const ctx = document.getElementById('sync-chart');
-    if (!ctx) return;
-
-    const data = {{ sync_metrics | tojson }};
-    const labels = data.map(m => m.ts).reverse();
-    const values = data.map(m => m.value_num).reverse();
-
-    new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Sync %',
-                data: values,
-                borderColor: '#28a745',
-                backgroundColor: 'rgba(40, 167, 69, 0.1)',
-                fill: true,
-                tension: 0.1
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    min: 0,
-                    max: 100,
-                    title: { display: true, text: 'Sync %' }
-                },
-                x: {
-                    display: false
-                }
-            },
-            plugins: {
-                legend: { display: false }
-            }
-        }
-    });
-})();
+{% for vol in volumes %}
+hsmTimeChart('sync-chart-{{ loop.index }}', {{ vol.series | tojson }}, {
+    color: '#28a745',
+    yMin: 0,
+    yMax: 100,
+    yLabel: 'Sync %'
+});
+{% endfor %}
 </script>
 {% endblock %}

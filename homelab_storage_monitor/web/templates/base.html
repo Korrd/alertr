@@ -11,6 +11,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/chart.umd.min.js"></script>
+    <script src="/static/hsm.js"></script>
     <script>
         // Theme handling - runs immediately to prevent flash
         (function() {
@@ -40,11 +41,27 @@
     </nav>
 
     <main class="container">
+        {% if staleness and staleness.is_stale %}
+        <div class="stale-banner">
+            <span class="stale-icon">⚠️</span>
+            <div>
+                <strong>Data is stale — the collector may be down.</strong>
+                Last check finished {{ staleness.last_run_ts | rel_ts }}, but checks are expected
+                every {{ (staleness.interval_seconds / 60) | round | int }} minutes.
+                Everything below reflects the last completed run, not current health.
+            </div>
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
     </main>
 
     <footer class="footer">
-        <p>Homelab Storage Monitor v{{ version }} | Last updated: {{ now().strftime('%Y-%m-%d %H:%M:%S %Z') }}</p>
+        <p>
+            Homelab Storage Monitor v{{ version }}
+            {% if staleness and staleness.last_run_ts %}
+            | Last check: {{ staleness.last_run_ts | rel_ts }}
+            {% endif %}
+        </p>
     </footer>
 
     <script>
@@ -71,6 +88,9 @@
 
             updateIcon();
         })();
+
+        // Reload when the collector completes a new run
+        hsmAutoRefresh({{ (staleness.last_run_id if staleness else None) | tojson }});
     </script>
 
     {% block scripts %}{% endblock %}

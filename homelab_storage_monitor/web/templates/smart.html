@@ -3,20 +3,29 @@
 {% block title %}SMART{% endblock %}
 
 {% block content %}
-<h1>SMART Disk Health</h1>
+<div class="page-header">
+    <h1>SMART Disk Health</h1>
+    <nav class="range-selector">
+        {% for r in ranges %}
+        <a href="?range={{ r }}" class="range-link {% if r == range_key %}active{% endif %}">{{ r }}</a>
+        {% endfor %}
+    </nav>
+</div>
 
 {% if disks %}
     {% for disk, data in disks.items() %}
-    <section class="card disk-card">
+    <section class="card disk-card" id="disk-{{ data.slug }}">
         <div class="disk-header">
             <div class="disk-title">
                 <h3>{{ disk }}</h3>
-                {% if data.health %}
-                    {% if data.health[0].value_num == 1 %}
+                {% if data.health is not none %}
+                    {% if data.health == 1 %}
                     <span class="status-badge badge-ok">HEALTHY</span>
                     {% else %}
                     <span class="status-badge badge-crit">FAILING</span>
                     {% endif %}
+                {% else %}
+                <span class="status-badge badge-unknown">UNKNOWN</span>
                 {% endif %}
             </div>
             {% if data.info %}
@@ -81,43 +90,68 @@
             {% endif %}
         </div>
 
-        {% if data.attrs %}
-        <h4>Key Attributes</h4>
+        {% if data.key_attrs %}
+        <h4>Health Indicators</h4>
         <div class="grid">
-            {% for attr_id, metrics in data.attrs.items() %}
-            {% set attr_id_int = attr_id | int %}
-            {% set attr_info = get_attr_info(attr_id_int) %}
-            {% set value = metrics[0].value_num | int %}
-            {% set is_temp = attr_id_int in [190, 194, 1001] %}
-            {% set is_spinup = attr_id_int == 3 %}
-            {% set is_pct = attr_id_int in [1002, 1003] %}
-            {% set is_gb = attr_id_int in [1008, 1009] %}
-            {% set is_nvme = attr_id_int >= 1000 %}
-            {% set is_critical = attr_info.importance == Importance.CRITICAL and value > 0 and attr_info.higher_is_worse %}
-            {% set is_warning = attr_info.importance == Importance.HIGH and value > 0 and attr_info.higher_is_worse %}
-            {% set spare_low = attr_id_int == 1003 and value < 20 %}
+            {% for attr in data.key_attrs %}
             <div class="mini-card">
                 <div class="tooltip-wrapper">
-                    <div class="attr-name">{{ attr_info.name }}</div>
-                    <div class="attr-id">{% if is_nvme %}NVMe{% else %}ID {{ attr_id }}{% endif %}</div>
+                    <div class="attr-name">{{ attr.name }}</div>
+                    <div class="attr-id">{% if attr.is_nvme %}NVMe{% else %}ID {{ attr.id }}{% endif %}</div>
                     <div class="tooltip-content">
-                        <div class="tooltip-title">{{ attr_info.name }}</div>
-                        <div class="tooltip-id">{% if is_nvme %}NVMe Health Metric{% else %}SMART Attribute #{{ attr_id }}{% endif %}</div>
-                        <div class="tooltip-desc">{{ attr_info.description }}</div>
-                        <span class="tooltip-importance importance-{{ attr_info.importance.value }}">
-                            {{ attr_info.importance.value }} importance
+                        <div class="tooltip-title">{{ attr.name }}</div>
+                        <div class="tooltip-id">{% if attr.is_nvme %}NVMe Health Metric{% else %}SMART Attribute #{{ attr.id }}{% endif %}</div>
+                        <div class="tooltip-desc">{{ attr.description }}</div>
+                        <span class="tooltip-importance importance-{{ attr.importance }}">
+                            {{ attr.importance }} importance
                         </span>
                     </div>
                 </div>
-                <div class="attr-value {% if is_critical %}value-critical{% elif is_warning %}value-warning{% elif spare_low %}value-warning{% elif is_temp and value > 50 %}value-warning{% elif is_temp and value > 60 %}value-critical{% else %}value-normal{% endif %}">
-                    {{ value }}{% if is_temp %}°C{% elif is_spinup %}ms{% elif is_pct %}%{% elif is_gb %}GB{% endif %}
+                <div class="attr-value {{ attr.value_class }}">
+                    {{ attr.value }}{{ attr.unit }}
                 </div>
                 <div class="chart-container-small">
-                    <canvas id="attr-{{ disk | replace('/', '-') }}-{{ attr_id }}"></canvas>
+                    <canvas id="attr-{{ data.slug }}-{{ attr.id }}"></canvas>
                 </div>
             </div>
             {% endfor %}
         </div>
+        {% endif %}
+
+        {% if data.temp_series and data.temp_series.ts %}
+        <h4>Temperature</h4>
+        <div class="chart-container chart-container-medium">
+            <canvas id="temp-{{ data.slug }}"></canvas>
+        </div>
+        {% endif %}
+
+        {% if data.other_attrs %}
+        <details class="attr-details">
+            <summary>All attributes ({{ data.other_attrs | length }} more)</summary>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Attribute</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for attr in data.other_attrs %}
+                    <tr>
+                        <td>{% if attr.is_nvme %}NVMe{% else %}{{ attr.id }}{% endif %}</td>
+                        <td>
+                            {{ attr.name }}
+                            {% if attr.description %}
+                            <span class="text-muted attr-desc-inline">— {{ attr.description }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="{{ attr.value_class }}">{{ attr.value }}{{ attr.unit }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </details>
         {% endif %}
 
         {# Self-Test & Error Log Section - at bottom #}
@@ -133,7 +167,7 @@
                     </span>
                     <span class="selftest-detail">
                         {% if data.selftest.last_short.hours_ago is not none %}
-                            {{ data.selftest.last_short.hours_ago | int }} hours ago
+                            {{ data.selftest.last_short.hours_ago | int }} power-on hours ago
                         {% endif %}
                     </span>
                 </div>
@@ -152,7 +186,7 @@
                     </span>
                     <span class="selftest-detail">
                         {% if data.selftest.last_long.hours_ago is not none %}
-                            {{ data.selftest.last_long.hours_ago | int }} hours ago
+                            {{ data.selftest.last_long.hours_ago | int }} power-on hours ago
                         {% endif %}
                     </span>
                 </div>
@@ -176,11 +210,31 @@
                         {% endif %}
                     </span>
                     {% if data.selftest.error_count > 0 %}
-                    <button class="btn-link selftest-detail" onclick="toggleErrorLog('{{ disk | replace('/', '-') }}')">
+                    <button class="btn-link selftest-detail" onclick="toggleErrorLog('{{ data.slug }}')">
                         View details
                     </button>
                     {% endif %}
                 </div>
+
+                {% if data.schedule %}
+                <div class="selftest-item">
+                    <span class="selftest-label">Next Scheduled</span>
+                    <span class="selftest-value test-info">
+                        {% if data.schedule.next_short %}
+                        short {{ data.schedule.next_short | rel_ts }}
+                        {% else %}
+                        short pending
+                        {% endif %}
+                    </span>
+                    <span class="selftest-detail">
+                        {% if data.schedule.next_long %}
+                        extended {{ data.schedule.next_long | rel_ts }}
+                        {% else %}
+                        extended pending
+                        {% endif %}
+                    </span>
+                </div>
+                {% endif %}
 
                 {% if data.selftest.test_count is defined and data.selftest.test_count > 0 %}
                 <div class="selftest-item">
@@ -192,13 +246,13 @@
 
             {# Expandable Error Log Details #}
             {% if data.selftest.error_count > 0 %}
-            <div id="error-log-{{ disk | replace('/', '-') }}" class="error-log-details" style="display: none;">
+            <div id="error-log-{{ data.slug }}" class="error-log-details" style="display: none;">
                 <div class="error-log-header">
                     <h5>Error Log Entries</h5>
                     {% if data.ack %}
                     <div class="ack-status">
                         <span class="ack-badge">✓ Acknowledged</span>
-                        <span class="ack-info">by {{ data.ack.acked_by }} on {{ data.ack.acked_at[:10] }}</span>
+                        <span class="ack-info">by {{ data.ack.acked_by }} on {{ data.ack.acked_at | local_ts }}</span>
                         {% if data.ack.note %}
                         <div class="ack-note">Note: {{ data.ack.note }}</div>
                         {% endif %}
@@ -364,54 +418,31 @@ document.getElementById('ack-modal')?.addEventListener('click', function(e) {
     }
 });
 
-// Charts
+// Sparkline color follows the value's status class
+const HSM_SPARK_COLORS = {
+    'value-critical': '#dc3545',
+    'value-warning': '#fd7e14',
+    'value-normal': '#6c757d'
+};
+
 {% for disk, data in disks.items() %}
-    {% for attr_id, metrics in data.attrs.items() %}
-    (function() {
-        const ctx = document.getElementById('attr-{{ disk | replace("/", "-") }}-{{ attr_id }}');
-        if (!ctx) return;
-
-        const data = {{ metrics | tojson }};
-        const values = data.map(m => m.value_num).reverse().slice(-50);
-
-        // Determine chart color based on importance
-        const attrId = {{ attr_id }};
-        const criticalAttrs = [5, 184, 187, 196, 197, 198, 220];
-        const highAttrs = [10, 188, 189, 199, 201, 202, 224, 227, 230, 231, 232, 233, 235];
-
-        let borderColor = '#6c757d';
-        if (criticalAttrs.includes(attrId) && values[values.length - 1] > 0) {
-            borderColor = '#dc3545';
-        } else if (highAttrs.includes(attrId) && values[values.length - 1] > 0) {
-            borderColor = '#fd7e14';
-        }
-
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: values.map((_, i) => i),
-                datasets: [{
-                    data: values,
-                    borderColor: borderColor,
-                    borderWidth: 1,
-                    pointRadius: 0,
-                    tension: 0.1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: { display: false },
-                    x: { display: false }
-                },
-                plugins: {
-                    legend: { display: false }
-                }
-            }
-        });
-    })();
+    {% for attr in data.key_attrs %}
+    hsmSparkline(
+        'attr-{{ data.slug }}-{{ attr.id }}',
+        {{ attr.series | tojson }},
+        HSM_SPARK_COLORS['{{ attr.value_class }}']
+    );
     {% endfor %}
+    {% if data.temp_series and data.temp_series.ts %}
+    hsmTimeChart('temp-{{ data.slug }}', {{ data.temp_series | tojson }}, {
+        color: '#e0642f',
+        yLabel: '°C',
+        thresholds: [
+            { value: {{ temp_warn_c }}, color: '#daa038', label: 'warn' },
+            { value: {{ temp_crit_c }}, color: '#cc0000', label: 'crit' }
+        ]
+    });
+    {% endif %}
 {% endfor %}
 </script>
 {% endblock %}

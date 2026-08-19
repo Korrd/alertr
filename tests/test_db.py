@@ -70,6 +70,88 @@ class TestSmartBaseline:
         assert db.get_smart_attr_baseline("/dev/sda", 199, 7) is None
 
 
+class TestMetricSeries:
+    def seed(self, db, hours: int, mount: str = "/mnt/a"):
+        """One fs_usage_pct point per 15 minutes for the given duration."""
+        now = utcnow()
+        metrics = []
+        for i in range(hours * 4):
+            metrics.append(Metric(
+                name="fs_usage_pct",
+                value_num=50.0 + i * 0.1,
+                labels={"mount": mount},
+                ts=now - timedelta(minutes=15 * i),
+            ))
+        db.save_metrics(metrics)
+
+    def test_series_is_ascending_and_filtered_by_labels(self, db):
+        self.seed(db, hours=4, mount="/mnt/a")
+        self.seed(db, hours=4, mount="/mnt/b")
+
+        series = db.get_metric_series(
+            "fs_usage_pct", {"mount": "/mnt/a"},
+            since=utcnow() - timedelta(hours=10),
+            bucket_seconds=900,
+        )
+        assert len(series) == 16
+        timestamps = [p["ts"] for p in series]
+        assert timestamps == sorted(timestamps)
+
+    def test_bucketing_downsamples(self, db):
+        self.seed(db, hours=8)
+        raw = db.get_metric_series(
+            "fs_usage_pct", {"mount": "/mnt/a"},
+            since=utcnow() - timedelta(hours=10), bucket_seconds=900,
+        )
+        hourly = db.get_metric_series(
+            "fs_usage_pct", {"mount": "/mnt/a"},
+            since=utcnow() - timedelta(hours=10), bucket_seconds=3600,
+        )
+        assert len(raw) == 32
+        assert len(hourly) <= 10  # ~8 hourly buckets (+/- boundary alignment)
+
+    def test_since_filters_out_old_points(self, db):
+        self.seed(db, hours=8)
+        series = db.get_metric_series(
+            "fs_usage_pct", {"mount": "/mnt/a"},
+            since=utcnow() - timedelta(hours=2), bucket_seconds=900,
+        )
+        assert len(series) == 8
+
+    def test_label_sets_enumeration(self, db):
+        self.seed(db, hours=1, mount="/mnt/a")
+        self.seed(db, hours=1, mount="/mnt/b")
+        sets = db.get_metric_label_sets("fs_usage_pct", since=utcnow() - timedelta(hours=2))
+        mounts = sorted(s["mount"] for s in sets)
+        assert mounts == ["/mnt/a", "/mnt/b"]
+
+    def test_latest_values_per_series(self, db):
+        now = utcnow()
+        db.save_metrics([
+            Metric(name="fs_free_bytes", value_num=100.0, labels={"mount": "/mnt/a"},
+                   ts=now - timedelta(hours=1)),
+            Metric(name="fs_free_bytes", value_num=90.0, labels={"mount": "/mnt/a"}, ts=now),
+            Metric(name="fs_free_bytes", value_num=500.0, labels={"mount": "/mnt/b"}, ts=now),
+        ])
+        latest = db.get_latest_metric_values("fs_free_bytes", since=now - timedelta(days=1))
+        by_mount = {v["labels"]["mount"]: v["value_num"] for v in latest}
+        assert by_mount == {"/mnt/a": 90.0, "/mnt/b": 500.0}
+
+
+class TestEventSourceFilter:
+    def test_filter_by_source(self, db):
+        from homelab_storage_monitor.models import Event, EventType
+
+        db.save_event(Event(event_type=EventType.STATE_CHANGE, severity=Status.CRIT,
+                            source="lvm_raid", message="degraded"))
+        db.save_event(Event(event_type=EventType.STATE_CHANGE, severity=Status.WARN,
+                            source="smart", message="warning"))
+
+        events = db.get_events(source="lvm_raid")
+        assert len(events) == 1
+        assert events[0]["source"] == "lvm_raid"
+
+
 class TestRetention:
     def test_old_rows_are_deleted(self, db, config):
         old_ts = utcnow() - timedelta(days=config.history.retention_days_metrics + 10)

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import base64
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
-from homelab_storage_monitor.models import CheckResult, RunResult, Status
+from homelab_storage_monitor.models import CheckResult, Metric, RunResult, Status
 from homelab_storage_monitor.timeutil import utcnow
 from homelab_storage_monitor.web.app import create_app
 
@@ -150,3 +151,130 @@ class TestOverviewEffectiveStatus:
         ])
         db.save_smart_ack("/dev/sda", error_count=99)
         assert "status-card status-warn" in client.get("/").text
+
+
+class TestStalenessBanner:
+    def seed_run_at(self, db, age: timedelta):
+        ts = utcnow() - age
+        db.save_run(RunResult(
+            hostname="test", ts_start=ts, ts_end=ts,
+            check_results=[CheckResult(name="smart", status=Status.OK, summary="ok")],
+        ))
+
+    def test_fresh_data_shows_no_banner(self, config):
+        app = create_app(config)
+        self.seed_run_at(app.state.db, timedelta(minutes=5))
+        text = TestClient(app).get("/").text
+        assert "Data is stale" not in text
+
+    def test_stale_data_shows_banner_on_every_page(self, config):
+        app = create_app(config)
+        self.seed_run_at(app.state.db, timedelta(hours=3))
+        client = TestClient(app)
+        for path in ["/", "/filesystem", "/lvm", "/smart", "/events"]:
+            assert "Data is stale" in client.get(path).text, path
+
+
+class TestPrometheusEndpoint:
+    def test_metrics_endpoint(self, config):
+        app = create_app(config)
+        db = app.state.db
+        seed_run(db, [CheckResult(name="smart", status=Status.OK, summary="ok",
+                                  identifier="/dev/sda")])
+        db.save_metrics([
+            Metric(name="fs_usage_pct", value_num=42.0, labels={"mount": "/mnt/x"}),
+        ])
+
+        resp = TestClient(app).get("/metrics")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/plain")
+        assert "hsm_info{" in resp.text
+        assert 'hsm_check_status{check="smart",identifier="/dev/sda"} 0' in resp.text
+        assert 'hsm_fs_usage_pct{mount="/mnt/x"} 42' in resp.text
+
+    def test_metrics_respects_auth(self, config):
+        config.dashboard.auth_enabled = True
+        config.dashboard.auth_password = "secret"
+        client = TestClient(create_app(config))
+        assert client.get("/metrics").status_code == 401
+        assert client.get("/metrics", headers=basic_auth("admin", "secret")).status_code == 200
+
+
+class TestDataPages:
+    @pytest.fixture
+    def seeded(self, config):
+        """App with a run, filesystem history, and SMART attribute history."""
+        app = create_app(config)
+        db = app.state.db
+        now = utcnow()
+
+        seed_run(db, [
+            CheckResult(name="smart", status=Status.OK, summary="/dev/sda: SMART healthy",
+                        identifier="/dev/sda"),
+            CheckResult(name="lvm_raid", status=Status.OK,
+                        summary="LV RAID/RAID healthy (RAID1, 100% synced)",
+                        identifier="RAID/RAID",
+                        details={"vg": "RAID", "lv": "RAID", "segtype": "raid1",
+                                 "lv_attr": "rwi-aor---", "copy_percent": "100.00",
+                                 "lv_health": "", "devices": "ra(0),rb(0)"}),
+        ])
+
+        metrics = []
+        for i in range(48):  # 12 hours of history, growing usage
+            ts = now - timedelta(minutes=15 * i)
+            metrics.extend([
+                Metric(name="fs_usage_pct", value_num=80.0 - i * 0.01,
+                       labels={"mount": "/hostfs/data"}, ts=ts),
+                Metric(name="smart_attr_raw", value_num=41.0,
+                       labels={"disk": "/dev/sda", "attr": "194"}, ts=ts),
+                Metric(name="smart_attr_raw", value_num=0.0,
+                       labels={"disk": "/dev/sda", "attr": "5"}, ts=ts),
+                Metric(name="smart_attr_raw", value_num=123.0,
+                       labels={"disk": "/dev/sda", "attr": "4"}, ts=ts),
+                Metric(name="lvm_sync_pct", value_num=100.0,
+                       labels={"vg": "RAID", "lv": "RAID"}, ts=ts),
+            ])
+        metrics.extend([
+            Metric(name="fs_free_bytes", value_num=1.0e12, labels={"mount": "/hostfs/data"}),
+            Metric(name="fs_total_bytes", value_num=5.0e12, labels={"mount": "/hostfs/data"}),
+            Metric(name="smart_overall_pass", value_num=1.0, labels={"disk": "/dev/sda"}),
+            Metric(name="lvm_degraded", value_num=0.0, labels={"vg": "RAID", "lv": "RAID"}),
+        ])
+        db.save_metrics(metrics)
+        return app
+
+    def test_overview_tiles(self, seeded):
+        text = TestClient(seeded).get("/").text
+        assert "Disks healthy" in text
+        assert "Storage used" in text
+        assert "Hottest disk" in text
+        assert "41" in text  # hottest temp
+
+    def test_filesystem_page_shows_capacity_and_projection(self, seeded):
+        text = TestClient(seeded).get("/filesystem").text
+        assert "free of" in text
+        assert "931.3GB" in text and "4.5TB" in text
+        # the fixture grows ~0.9%/day from 80%: a days-until-full estimate shows
+        assert "days at current rate" in text
+
+    def test_smart_page_key_and_other_attrs(self, seeded):
+        text = TestClient(seeded).get("/smart").text
+        assert 'id="disk--dev-sda"' in text  # anchor for overview links
+        assert "Health Indicators" in text
+        assert "All attributes" in text  # attr 4 is collapsed inventory
+        assert "Temperature" in text
+
+    def test_lvm_page_current_state(self, seeded):
+        text = TestClient(seeded).get("/lvm").text
+        assert "RAID/RAID" in text
+        assert "raid1" in text
+        assert "State Changes" in text
+
+    def test_invalid_range_falls_back(self, seeded):
+        client = TestClient(seeded)
+        assert client.get("/filesystem", params={"range": "bogus"}).status_code == 200
+        assert client.get("/smart", params={"range": "1y"}).status_code == 200
+
+    def test_range_selector_rendered(self, seeded):
+        text = TestClient(seeded).get("/filesystem", params={"range": "30d"}).text
+        assert 'class="range-link active">30d' in text

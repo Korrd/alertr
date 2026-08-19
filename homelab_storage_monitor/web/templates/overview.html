@@ -16,9 +16,49 @@
         </h2>
         <p class="text-muted">
             Host: {{ latest_run.hostname }} |
-            Last check: {{ latest_run.ts_end }}
+            Last check: {{ latest_run.ts_end | rel_ts }}
         </p>
     </div>
+</section>
+
+<section class="tile-grid">
+    {% if disk_counts %}
+    <a class="tile {% if disk_counts.problem %}tile-warn{% elif disk_counts.unknown %}tile-unknown{% endif %}" href="/smart">
+        <span class="tile-value">
+            {{ disk_counts.ok }}<span class="tile-value-sub">/{{ disk_counts.ok + disk_counts.problem + disk_counts.unknown }}</span>
+        </span>
+        <span class="tile-label">Disks healthy</span>
+        {% if disk_counts.problem %}
+        <span class="tile-detail">{{ disk_counts.problem }} with issues</span>
+        {% elif disk_counts.unknown %}
+        <span class="tile-detail">{{ disk_counts.unknown }} unreadable</span>
+        {% else %}
+        <span class="tile-detail">all disks OK</span>
+        {% endif %}
+    </a>
+    {% endif %}
+
+    {% if storage %}
+    <a class="tile" href="/filesystem">
+        <span class="tile-value">{{ "%.1f" | format(storage.used_pct) }}<span class="tile-value-sub">%</span></span>
+        <span class="tile-label">Storage used</span>
+        <span class="tile-detail">{{ storage.free | human_bytes }} free of {{ storage.total | human_bytes }}</span>
+    </a>
+    {% endif %}
+
+    {% if hottest %}
+    <a class="tile {% if hottest.temp >= temp_crit_c %}tile-crit{% elif hottest.temp >= temp_warn_c %}tile-warn{% endif %}" href="/smart#disk-{{ hottest.disk | replace('/', '-') }}">
+        <span class="tile-value">{{ hottest.temp | int }}<span class="tile-value-sub">°C</span></span>
+        <span class="tile-label">Hottest disk</span>
+        <span class="tile-detail">{{ hottest.disk }}</span>
+    </a>
+    {% endif %}
+
+    <a class="tile {% if open_issues %}tile-warn{% endif %}" href="/events">
+        <span class="tile-value">{{ open_issues | length }}</span>
+        <span class="tile-label">Open issues</span>
+        <span class="tile-detail">{% if open_issues %}see events for history{% else %}nothing outstanding{% endif %}</span>
+    </a>
 </section>
 
 <section class="card">
@@ -34,11 +74,15 @@
         </thead>
         <tbody>
             {% for check in latest_run.check_results %}
-            <tr>
+            {% set row_status = check.display_status or check.status %}
+            <tr class="row-link" onclick="window.location='{{ check.link or '/' }}'">
                 <td>
-                    <span class="status-badge badge-{{ check.status | lower }}">
-                        {{ check.status }}
+                    <span class="status-badge badge-{{ row_status | lower }}">
+                        {{ row_status }}
                     </span>
+                    {% if row_status != check.status %}
+                    <span class="ack-hint" title="Raw status {{ check.status }}; acknowledged">ack'd</span>
+                    {% endif %}
                 </td>
                 <td>{{ check.name }}{% if check.identifier %} ({{ check.identifier }}){% endif %}</td>
                 <td>{{ check.summary }}</td>
@@ -97,7 +141,7 @@
                     </span>
                 </td>
                 <td>{{ issue.key }}</td>
-                <td>{{ issue.last_change_ts }}</td>
+                <td>{{ issue.last_change_ts | rel_ts }}</td>
                 <td>{{ issue.alert_count }}</td>
             </tr>
             {% endfor %}
@@ -121,7 +165,7 @@
         <tbody>
             {% for event in recent_events %}
             <tr>
-                <td>{{ event.ts }}</td>
+                <td class="nowrap">{{ event.ts | local_ts }}</td>
                 <td>{{ event.event_type }}</td>
                 <td>
                     <span class="status-badge badge-{{ event.severity | lower }}">
