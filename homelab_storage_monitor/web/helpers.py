@@ -106,6 +106,20 @@ def project_days_until_full(series: list[dict[str, Any]]) -> float | None:
     return min(days, 3650.0)
 
 
+def estimate_ts(collected_at: str | None, hours_ago: float | None) -> str | None:
+    """Estimate when a SMART log entry happened from its power-on-hours age.
+
+    Assumes the drive was powered the whole time since; if it was off, the
+    real time is earlier.
+    """
+    if not collected_at or hours_ago is None:
+        return None
+    try:
+        return (parse_ts(collected_at) - timedelta(hours=hours_ago)).isoformat()
+    except (ValueError, TypeError):
+        return None
+
+
 def human_bytes(value: float | int | None) -> str:
     """Format a byte count for display."""
     if value is None:

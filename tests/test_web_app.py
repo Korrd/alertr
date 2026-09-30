@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import base64
+import re
 from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
 from homelab_storage_monitor.models import CheckResult, Metric, RunResult, Status
-from homelab_storage_monitor.timeutil import utcnow
+from homelab_storage_monitor.timeutil import parse_ts, utcnow
 from homelab_storage_monitor.web.app import create_app
 
 
@@ -296,6 +297,13 @@ class TestDataPages:
         assert "Showing latest 3 of 21" in text
         # The legacy entry has no "lba" key and gets a placeholder, not a blank cell
         assert '<td class="error-detail-cell">—</td>' in text
+
+        # Each row gets a completion time estimated from its power-on-hours age
+        history = text.split('id="test-history--dev-sda"')[1].split("</table>")[0]
+        stamps = [parse_ts(ts) for ts in re.findall(r'data-ts="([^"]+)"', history)]
+        assert len(stamps) == 3
+        expected = utcnow() - timedelta(hours=10)
+        assert abs((stamps[0] - expected).total_seconds()) < 60
 
     def test_attr_split_follows_importance_taxonomy(self, config):
         from homelab_storage_monitor.web.app import build_smart_data

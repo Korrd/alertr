@@ -25,6 +25,7 @@ from homelab_storage_monitor.timeutil import parse_ts, utcnow
 from homelab_storage_monitor.web.helpers import (
     RANGES,
     compute_staleness,
+    estimate_ts,
     human_bytes,
     parse_range,
     project_days_until_full,
@@ -385,7 +386,17 @@ def build_smart_data(db: Database, config: Config, range_key: str) -> dict[str, 
         return out
 
     disk_infos = parse_text_values("disk_info")
-    disk_selftests = parse_text_values("disk_selftest")
+
+    # Self-test logs only carry power-on hours; estimate when each test
+    # completed from the collection time.
+    disk_selftests: dict[str, dict] = {}
+    for v in db.get_latest_metric_values("disk_selftest", latest_since):
+        with contextlib.suppress(json.JSONDecodeError, TypeError):
+            selftest = json.loads(v["value_text"])
+            tests = selftest.get("tests", []) + [selftest.get("last_short"), selftest.get("last_long")]
+            for test in filter(None, tests):
+                test["completed_at"] = estimate_ts(v["ts"], test.get("hours_ago"))
+            disk_selftests[v["labels"].get("disk", "unknown")] = selftest
     disk_acks = db.get_all_smart_acks()
     healths = {
         v["labels"].get("disk", "unknown"): v["value_num"]

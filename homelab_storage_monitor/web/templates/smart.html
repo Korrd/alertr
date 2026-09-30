@@ -159,8 +159,11 @@
                     <span class="selftest-label">Short Test</span>
                     <span class="selftest-value">{{ test_outcome(data.selftest.last_short) }}</span>
                     <span class="selftest-detail">
+                        {% if data.selftest.last_short.completed_at %}
+                            ≈ {{ data.selftest.last_short.completed_at | local_ts }}
+                        {% endif %}
                         {% if data.selftest.last_short.hours_ago is not none %}
-                            {{ data.selftest.last_short.hours_ago | int }} power-on hours ago
+                            ({{ data.selftest.last_short.hours_ago | int }} power-on hours ago)
                         {% endif %}
                     </span>
                 </div>
@@ -176,8 +179,11 @@
                     <span class="selftest-label">Extended Test</span>
                     <span class="selftest-value">{{ test_outcome(data.selftest.last_long) }}</span>
                     <span class="selftest-detail">
+                        {% if data.selftest.last_long.completed_at %}
+                            ≈ {{ data.selftest.last_long.completed_at | local_ts }}
+                        {% endif %}
                         {% if data.selftest.last_long.hours_ago is not none %}
-                            {{ data.selftest.last_long.hours_ago | int }} power-on hours ago
+                            ({{ data.selftest.last_long.hours_ago | int }} power-on hours ago)
                         {% endif %}
                     </span>
                 </div>
@@ -257,6 +263,7 @@
                             <th>Type</th>
                             <th>Result</th>
                             <th>Status</th>
+                            <th title="Estimated from power-on hours, assuming the drive was powered continuously. If the host was off, the real time is earlier.">Completed (≈)</th>
                             <th>Lifetime Hours</th>
                             <th>Ago</th>
                             <th>First Error LBA</th>
@@ -269,6 +276,7 @@
                             <td>{{ test.type }}</td>
                             <td>{{ test_outcome(test) }}</td>
                             <td>{{ test.status }}</td>
+                            <td>≈ {{ test.completed_at | local_ts }}</td>
                             <td>{{ test.lifetime_hours }}</td>
                             <td>{% if test.hours_ago is not none %}{{ test.hours_ago | int }} power-on h{% else %}—{% endif %}</td>
                             <td class="error-detail-cell">{% if test.lba is defined and test.lba is not none %}{{ test.lba }}{% else %}—{% endif %}</td>

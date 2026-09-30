@@ -8,6 +8,7 @@ from homelab_storage_monitor.models import CheckResult, Metric, RunResult, Statu
 from homelab_storage_monitor.timeutil import utcnow
 from homelab_storage_monitor.web.helpers import (
     compute_staleness,
+    estimate_ts,
     human_bytes,
     parse_range,
     project_days_until_full,
@@ -139,3 +140,13 @@ class TestPrometheus:
         ])
         body = render_prometheus(db, config)
         assert 'mount="a\\"b\\\\c"' in body
+
+
+class TestEstimateTs:
+    def test_subtracts_power_on_hours(self):
+        assert estimate_ts("2026-09-30T12:00:00+00:00", 10) == "2026-09-30T02:00:00+00:00"
+
+    def test_missing_inputs_give_none(self):
+        assert estimate_ts(None, 10) is None
+        assert estimate_ts("2026-09-30T12:00:00+00:00", None) is None
+        assert estimate_ts("garbage", 10) is None
