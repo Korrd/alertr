@@ -264,6 +264,39 @@ class TestDataPages:
         assert "All attributes" in text  # attr 4 is collapsed inventory
         assert "Temperature" in text
 
+    def test_smart_page_shows_selftest_history(self, seeded):
+        import json
+
+        selftest = {
+            "tests": [
+                {"type": "Extended offline", "status": "Completed: read failure",
+                 "outcome": "failed", "passed": False, "lifetime_hours": 9990,
+                 "hours_ago": 10, "lba": 123456},
+                {"type": "Short offline", "status": "Aborted by host",
+                 "outcome": "incomplete", "passed": True, "lifetime_hours": 9980,
+                 "hours_ago": 20, "lba": None},
+                # Stored before "outcome"/"lba" existed
+                {"type": "Short offline", "status": "Completed without error",
+                 "passed": True, "lifetime_hours": 9970, "hours_ago": 30},
+            ],
+            "test_count": 21, "error_count": 0, "has_errors": True,
+            "last_short": None, "last_long": None,
+        }
+        seeded.state.db.save_metrics([
+            Metric(name="disk_selftest", value_text=json.dumps(selftest),
+                   labels={"disk": "/dev/sda"}),
+        ])
+
+        text = TestClient(seeded).get("/smart").text
+        assert "Self-Test History" in text
+        assert 'id="test-history--dev-sda"' in text
+        assert "Completed: read failure" in text and "123456" in text
+        assert "Aborted by host" in text and "Incomplete" in text
+        assert "Completed without error" in text and "✓ Passed" in text
+        assert "Showing latest 3 of 21" in text
+        # The legacy entry has no "lba" key and gets a placeholder, not a blank cell
+        assert '<td class="error-detail-cell">—</td>' in text
+
     def test_attr_split_follows_importance_taxonomy(self, config):
         from homelab_storage_monitor.web.app import build_smart_data
 

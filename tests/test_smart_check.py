@@ -204,6 +204,86 @@ class TestNvmeAnalysis:
         assert result.status == Status.OK
 
 
+def ata_test(kind: str, status_value: int, status: str, hours: int, **extra) -> dict:
+    """One ATA self-test log entry as smartctl -j emits it."""
+    entry_status: dict = {"value": status_value, "string": status}
+    if status_value >> 4 not in (0x1, 0x2, 0x3):  # smartctl omits "passed" for these
+        entry_status["passed"] = status_value >> 4 in (0x0, 0xF)
+    return {
+        "type": {"value": 1, "string": kind},
+        "status": entry_status,
+        "lifetime_hours": hours,
+        **extra,
+    }
+
+
+def nvme_test(kind: str, result_value: int, result: str, hours: int, **extra) -> dict:
+    """One NVMe self-test log entry as smartctl -j emits it."""
+    return {
+        "self_test_code": {"value": 1 if kind == "Short" else 2, "string": kind},
+        "self_test_result": {"value": result_value, "string": result},
+        "power_on_hours": hours,
+        **extra,
+    }
+
+
+class TestSelftestLog:
+    def test_ata_history_is_kept_in_full_and_classified(self, check):
+        tests = [
+            ata_test("Short offline", 0x74, "Completed: read failure", 9999, lba=123456),
+            ata_test("Short offline", 0x10, "Aborted by host", 9998),
+            ata_test("Extended offline", 0x00, "Completed without error", 9900),
+        ] + [
+            ata_test("Short offline", 0x00, "Completed without error", 9000 - i)
+            for i in range(18)
+        ]
+        result = run_disk(check, make_ata_smart_data(selftests=tests))
+        selftest = result.details["selftest"]
+
+        assert selftest["test_count"] == 21
+        assert len(selftest["tests"]) == 21
+        first, aborted, extended = selftest["tests"][:3]
+        assert (first["outcome"], first["passed"], first["lba"]) == ("failed", False, 123456)
+        assert first["hours_ago"] == 1
+        assert (aborted["outcome"], aborted["passed"]) == ("incomplete", True)
+        assert extended["outcome"] == "passed"
+        assert selftest["last_short"] is first
+        assert selftest["last_long"] is extended
+        assert result.status == Status.CRIT
+
+    def test_ata_failure_outside_alert_window_does_not_alert(self, check):
+        tests = [
+            ata_test("Short offline", 0x00, "Completed without error", 9000 - i)
+            for i in range(10)
+        ] + [ata_test("Short offline", 0x74, "Completed: read failure", 100, lba=1)]
+        result = run_disk(check, make_ata_smart_data(selftests=tests))
+        assert result.status == Status.OK
+        assert result.details["selftest"]["tests"][-1]["outcome"] == "failed"
+
+    def test_nvme_log_is_parsed(self, check):
+        tests = [
+            nvme_test("Short", 0x2, "Aborted: Controller Reset", 4999),
+            nvme_test("Extended", 0x0, "Completed without error", 4900),
+            nvme_test("Short", 0x0, "Completed without error", 4800),
+        ]
+        result = run_disk(check, make_nvme_smart_data(selftests=tests))
+        selftest = result.details["selftest"]
+
+        assert selftest["test_count"] == 3
+        assert [t["outcome"] for t in selftest["tests"]] == ["incomplete", "passed", "passed"]
+        assert selftest["last_short"]["status"] == "Aborted: Controller Reset"
+        assert selftest["last_long"]["type"] == "Extended"
+        # An aborted test is not a failure
+        assert result.status == Status.OK
+
+    def test_nvme_failed_segment_is_crit(self, check):
+        tests = [nvme_test("Extended", 0x7, "Completed: failed segments", 4999, lba=42, segment=3)]
+        result = run_disk(check, make_nvme_smart_data(selftests=tests))
+        assert result.details["selftest"]["tests"][0]["lba"] == 42
+        assert result.status == Status.CRIT
+        assert "Self-test failed" in result.summary
+
+
 class TestSelftestScheduling:
     @pytest.fixture
     def sched_check(self, config, db):

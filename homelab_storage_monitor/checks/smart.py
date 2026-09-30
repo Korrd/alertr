@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 EXIT_BIT_CMDLINE_ERROR = 0x01
 EXIT_BIT_OPEN_FAILED = 0x02
 
+# Only the most recent self-tests can raise a "Self-test failed" issue; older
+# log entries are kept for display only.
+SELFTEST_ALERT_WINDOW = 10
+
+# NVMe self-test result codes that mean the test actually failed (NVMe base
+# spec, DST log). 0 = passed; the rest are aborts, which are not failures.
+NVME_SELFTEST_FAILED_RESULTS = {0x5, 0x6, 0x7}
+
 
 class SmartCheck(BaseCheck):
     """Check SMART health status for configured disks."""
@@ -280,36 +288,31 @@ class SmartCheck(BaseCheck):
         if isinstance(power_on, dict):
             current_poh = power_on.get("hours", 0)
 
-        # Get self-test log (ATA style)
-        selftest_log = smart_data.get("ata_smart_self_test_log", {})
-        if selftest_log:
-            standard = selftest_log.get("standard", {})
-            test_table = standard.get("table", [])
-            results["test_count"] = len(test_table)
+        # Self-test log, newest first (ATA or NVMe style)
+        ata_table = (
+            smart_data.get("ata_smart_self_test_log", {}).get("standard", {}).get("table", [])
+        )
+        nvme_table = smart_data.get("nvme_self_test_log", {}).get("table", [])
+        # smartctl indexes NVMe entries by log slot, so skipped slots may be null
+        entries = [self._parse_ata_selftest(t) for t in ata_table] + [
+            self._parse_nvme_selftest(t) for t in nvme_table if t
+        ]
+        results["test_count"] = len(entries)
 
-            for test in test_table[:10]:  # Keep last 10 tests
-                lifetime_hours = test.get("lifetime_hours", 0)
-                hours_ago = current_poh - lifetime_hours if current_poh > 0 else None
+        for i, test_entry in enumerate(entries):
+            lifetime_hours = test_entry["lifetime_hours"]
+            test_entry["hours_ago"] = current_poh - lifetime_hours if current_poh > 0 else None
+            results["tests"].append(test_entry)
 
-                test_entry = {
-                    "type": test.get("type", {}).get("string", "Unknown"),
-                    "status": test.get("status", {}).get("string", "Unknown"),
-                    "passed": test.get("status", {}).get("passed", True),
-                    "remaining_percent": test.get("status", {}).get("remaining_percent", 0),
-                    "lifetime_hours": lifetime_hours,
-                    "hours_ago": hours_ago,
-                }
-                results["tests"].append(test_entry)
+            # Track last short and long tests
+            test_type = test_entry["type"].lower()
+            if "short" in test_type and results["last_short"] is None:
+                results["last_short"] = test_entry
+            elif ("extended" in test_type or "long" in test_type) and results["last_long"] is None:
+                results["last_long"] = test_entry
 
-                # Track last short and long tests
-                test_type = test_entry["type"].lower()
-                if "short" in test_type and results["last_short"] is None:
-                    results["last_short"] = test_entry
-                elif ("extended" in test_type or "long" in test_type) and results["last_long"] is None:
-                    results["last_long"] = test_entry
-
-                if not test_entry["passed"]:
-                    results["has_errors"] = True
+            if not test_entry["passed"] and i < SELFTEST_ALERT_WINDOW:
+                results["has_errors"] = True
 
         # Get error log count and details (ATA style)
         error_log = smart_data.get("ata_smart_error_log", {})
@@ -374,6 +377,54 @@ class SmartCheck(BaseCheck):
                     } for i in range(min(err_entries, 10))]
 
         return results
+
+    @staticmethod
+    def _parse_ata_selftest(test: dict[str, Any]) -> dict[str, Any]:
+        """Normalize one ATA self-test log entry."""
+        status = test.get("status", {})
+        status_value = status.get("value", 0)
+        if status_value >> 4 == 0xF:
+            outcome = "running"
+        elif "passed" not in status:
+            # smartctl omits "passed" for aborted, interrupted and fatal-error
+            # tests: the outcome is unknown, not a confirmed failure
+            outcome = "incomplete"
+        elif status["passed"]:
+            outcome = "passed"
+        else:
+            outcome = "failed"
+
+        return {
+            "type": test.get("type", {}).get("string", "Unknown"),
+            "status": status.get("string", "Unknown"),
+            "outcome": outcome,
+            "passed": outcome != "failed",
+            "remaining_percent": status.get("remaining_percent", 0),
+            "lifetime_hours": test.get("lifetime_hours", 0),
+            "lba": test.get("lba"),
+        }
+
+    @staticmethod
+    def _parse_nvme_selftest(test: dict[str, Any]) -> dict[str, Any]:
+        """Normalize one NVMe self-test log entry."""
+        result = test.get("self_test_result", {})
+        result_value = result.get("value", 0)
+        if result_value == 0:
+            outcome = "passed"
+        elif result_value in NVME_SELFTEST_FAILED_RESULTS:
+            outcome = "failed"
+        else:
+            outcome = "incomplete"
+
+        return {
+            "type": test.get("self_test_code", {}).get("string", "Unknown"),
+            "status": result.get("string", "Unknown"),
+            "outcome": outcome,
+            "passed": outcome != "failed",
+            "remaining_percent": 0,
+            "lifetime_hours": test.get("power_on_hours", 0),
+            "lba": test.get("lba"),
+        }
 
     def _parse_temperature(self, raw_value: int, attr_id: int) -> int:
         """Extract temperature from SMART raw value.
@@ -480,7 +531,7 @@ class SmartCheck(BaseCheck):
                     f" (total: {selftest_results['error_count']})"
                 )
                 warnings.append(error_log_warning)
-            for test in selftest_results["tests"]:
+            for test in selftest_results["tests"][:SELFTEST_ALERT_WINDOW]:
                 if not test["passed"]:
                     issues.append(f"Self-test failed: {test['type']} - {test['status']}")
                     break  # Only report first failure

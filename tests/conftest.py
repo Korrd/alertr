@@ -78,9 +78,10 @@ def make_nvme_smart_data(
     temperature: int = 40,
     critical_warning: int = 0,
     num_err_log_entries: int = 0,
+    selftests: list[dict] | None = None,
 ) -> dict:
     """Build a realistic smartctl -j output for an NVMe disk."""
-    return {
+    data = {
         "json_format_version": [1, 0],
         "smartctl": {"version": [7, 4], "exit_status": 0},
         "device": {"name": "/dev/nvme0", "type": "nvme", "protocol": "NVMe"},
@@ -102,6 +103,12 @@ def make_nvme_smart_data(
             "data_units_read": 2000000,
         },
     }
+    if selftests is not None:
+        data["nvme_self_test_log"] = {
+            "current_self_test_operation": {"value": 0, "string": "No self-test in progress"},
+            "table": selftests,
+        }
+    return data
 
 
 def make_open_failure_data(disk: str = "/dev/sdb") -> dict:

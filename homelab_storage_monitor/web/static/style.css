@@ -676,11 +676,13 @@ body {
     font-weight: 600;
 }
 
-.selftest-value.test-passed {
+.selftest-value.test-passed,
+.test-outcome.test-passed {
     color: var(--color-ok);
 }
 
-.selftest-value.test-failed {
+.selftest-value.test-failed,
+.test-outcome.test-failed {
     color: var(--color-crit);
 }
 
@@ -690,8 +692,13 @@ body {
     font-style: italic;
 }
 
-.selftest-value.test-info {
+.selftest-value.test-info,
+.test-outcome.test-info {
     color: var(--color-muted);
+}
+
+.table-scroll {
+    overflow-x: auto;
 }
 
 .selftest-value.test-acked {

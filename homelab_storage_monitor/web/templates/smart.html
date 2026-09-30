@@ -2,6 +2,15 @@
 
 {% block title %}SMART{% endblock %}
 
+{% macro test_outcome(test) %}
+{%- set outcome = test.outcome or ('passed' if test.passed else 'failed') -%}
+{%- if outcome == 'passed' -%}<span class="test-outcome test-passed">✓ Passed</span>
+{%- elif outcome == 'failed' -%}<span class="test-outcome test-failed">✗ Failed</span>
+{%- elif outcome == 'running' -%}<span class="test-outcome test-info">In progress</span>
+{%- else -%}<span class="test-outcome test-info">Incomplete</span>
+{%- endif -%}
+{% endmacro %}
+
 {% macro attr_card(slug, attr) %}
 <div class="mini-card">
     <div class="tooltip-wrapper">
@@ -148,9 +157,7 @@
                 {% if data.selftest.last_short %}
                 <div class="selftest-item">
                     <span class="selftest-label">Short Test</span>
-                    <span class="selftest-value {% if data.selftest.last_short.passed %}test-passed{% else %}test-failed{% endif %}">
-                        {% if data.selftest.last_short.passed %}✓ Passed{% else %}✗ Failed{% endif %}
-                    </span>
+                    <span class="selftest-value">{{ test_outcome(data.selftest.last_short) }}</span>
                     <span class="selftest-detail">
                         {% if data.selftest.last_short.hours_ago is not none %}
                             {{ data.selftest.last_short.hours_ago | int }} power-on hours ago
@@ -167,9 +174,7 @@
                 {% if data.selftest.last_long %}
                 <div class="selftest-item">
                     <span class="selftest-label">Extended Test</span>
-                    <span class="selftest-value {% if data.selftest.last_long.passed %}test-passed{% else %}test-failed{% endif %}">
-                        {% if data.selftest.last_long.passed %}✓ Passed{% else %}✗ Failed{% endif %}
-                    </span>
+                    <span class="selftest-value">{{ test_outcome(data.selftest.last_long) }}</span>
                     <span class="selftest-detail">
                         {% if data.selftest.last_long.hours_ago is not none %}
                             {{ data.selftest.last_long.hours_ago | int }} power-on hours ago
@@ -226,9 +231,54 @@
                 <div class="selftest-item">
                     <span class="selftest-label">Test History</span>
                     <span class="selftest-value test-info">{{ data.selftest.test_count }} test(s) logged</span>
+                    {% if data.selftest.tests %}
+                    <button class="btn-link selftest-detail" onclick="toggleTestHistory('{{ data.slug }}')">
+                        View history
+                    </button>
+                    {% endif %}
                 </div>
                 {% endif %}
             </div>
+
+            {# Expandable Self-Test History #}
+            {% if data.selftest.tests %}
+            <div id="test-history-{{ data.slug }}" class="error-log-details" style="display: none;">
+                <div class="error-log-header">
+                    <h5>Self-Test History</h5>
+                    {% if data.selftest.tests | length < data.selftest.test_count %}
+                    <span class="selftest-detail">Showing latest {{ data.selftest.tests | length }} of {{ data.selftest.test_count }}</span>
+                    {% endif %}
+                </div>
+                <div class="table-scroll">
+                <table class="error-log-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Type</th>
+                            <th>Result</th>
+                            <th>Status</th>
+                            <th>Lifetime Hours</th>
+                            <th>Ago</th>
+                            <th>First Error LBA</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for test in data.selftest.tests %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ test.type }}</td>
+                            <td>{{ test_outcome(test) }}</td>
+                            <td>{{ test.status }}</td>
+                            <td>{{ test.lifetime_hours }}</td>
+                            <td>{% if test.hours_ago is not none %}{{ test.hours_ago | int }} power-on h{% else %}—{% endif %}</td>
+                            <td class="error-detail-cell">{% if test.lba is defined and test.lba is not none %}{{ test.lba }}{% else %}—{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            {% endif %}
 
             {# Expandable Error Log Details #}
             {% if data.selftest.error_count > 0 %}
@@ -329,6 +379,13 @@
 {% block scripts %}
 <script>
 // Error log toggle
+function toggleTestHistory(diskId) {
+    const el = document.getElementById('test-history-' + diskId);
+    if (el) {
+        el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
 function toggleErrorLog(diskId) {
     const el = document.getElementById('error-log-' + diskId);
     if (el) {
